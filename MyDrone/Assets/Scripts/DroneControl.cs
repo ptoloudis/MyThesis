@@ -86,7 +86,7 @@ public class DroneControl : MonoBehaviour
             return;
         }
 
-        double lastInterval = Time.realtimeSinceStartup;
+        // double lastInterval = Time.realtimeSinceStartup;
 
         string json;
         if ( ringBuffer.IsEmpty )
@@ -126,15 +126,15 @@ public class DroneControl : MonoBehaviour
 
         // Apply force and change moments
         rb.AddForce(engineForce);
-        double timeNowM = Time.realtimeSinceStartup;
+        // double timeNowM = Time.realtimeSinceStartup;
 
         json = BuildJSON();
-        // WriteJsonToFile(pwns, json);
+        WriteJsonToFile(pwns, json);
         SendData(json);
-        double timeNowF = Time.realtimeSinceStartup;
+        // double timeNowF = Time.realtimeSinceStartup;
 
-        Debug.Log("M:" + (timeNowM - lastInterval));
-        Debug.Log("F:" + (timeNowF - lastInterval));
+        // Debug.Log("M:" + (timeNowM - lastInterval));
+        // Debug.Log("F:" + (timeNowF - lastInterval));
     }
 
 
@@ -332,7 +332,7 @@ public class DroneControl : MonoBehaviour
         string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         // Construct the full file path
-        string filePath = Path.Combine(homeDirectory, "JSON", "unity", Time.realtimeSinceStartup +".json");
+        string filePath = Path.Combine(homeDirectory, "MyDrone","JSON", "unity", Time.realtimeSinceStartup +".json");
 
         // Write JSON string to the file
         using (StreamWriter streamWriter = File.CreateText(filePath))
