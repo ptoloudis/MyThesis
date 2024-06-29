@@ -85,7 +85,7 @@ public class DroneEngine : MonoBehaviour, I_Engine
 
         // Calculate the thrust (with fudge factor)
         thrust = 4.4f * prop_TConst * denstity * Mathf.Pow(rps, 2) * Mathf.Pow(prop_diameter, 4);
-        
+
         // Update
         rpm = rps * 60;
         moment_roll = thrust * z;

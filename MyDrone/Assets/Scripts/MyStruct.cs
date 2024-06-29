@@ -4,15 +4,15 @@ public class IMUData
     public double timestamp;
     public IMU imu;
     public double[] position;
-    public double[] quaternion;
+    public double[] attitude;
     public double[] velocity;
 
-    public IMUData(double timestamp, IMU imu, double[] position, double[] quaternion, double[] velocity)
+    public IMUData(double timestamp, IMU imu, double[] position, double[] attitude, double[] velocity)
     {
         this.timestamp = timestamp;
         this.imu = imu;
         this.position = position;
-        this.quaternion = quaternion;
+        this.attitude = attitude;
         this.velocity = velocity;
     }
 }

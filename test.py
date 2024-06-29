@@ -12,10 +12,9 @@ accel_z = []
 position_x = []
 position_y = []
 position_z = []
-quaternion_x = []
-quaternion_y = []
-quaternion_z = []
-quaternion_w = []
+attitude_x = []
+attitude_y = []
+attitude_z = []
 velocity_x = []
 velocity_y = []
 velocity_z = []
@@ -25,22 +24,14 @@ D = []
 # Function to load JSON data from a file
 def load_json(filename):
     with open(filename, 'r') as f:
-        # Read the first line containing the series of numbers
-        numbers_line = f.readline().strip()
-        # Read the second line containing the JSON-like data
-        json_line = f.readline()
-        
-        # Process the series of numbers
-        numbers = list(map(int, numbers_line.split()))
-        if numbers[0] <= 1100:
-            return
-        
-        # Process the JSON-like data
-        N.append(numbers)
-        data = json.loads(json_line)
-        get_data(data)
-
-        return
+        for line in f:
+            if line.strip():  # Check if the line is not empty
+                try:
+                    data = json.loads(line)
+                    get_data(data)
+                except json.JSONDecodeError as e:
+                    print(f"Error decoding JSON: {e}")
+                    continue  # Skip lines with errors
 
 # Function to extract data and plot
 def get_data(json_data):
@@ -49,7 +40,7 @@ def get_data(json_data):
     gyro = json_data["imu"]["gyro"]
     accel = json_data["imu"]["accel_body"]
     position = json_data["position"]
-    quaternion = json_data["quaternion"]
+    attitude = json_data["attitude"]
     velocity = json_data["velocity"]
 
     gyro_x.append(gyro[0])
@@ -64,51 +55,15 @@ def get_data(json_data):
     position_y.append(position[1])
     position_z.append(position[2])
 
-    quaternion_x.append(quaternion[0])
-    quaternion_y.append(quaternion[1])
-    quaternion_z.append(quaternion[2])
-    quaternion_w.append(quaternion[3])
+    attitude_x.append(attitude[0])
+    attitude_y.append(attitude[1])
+    attitude_z.append(attitude[2])
 
     velocity_x.append(velocity[0])
     velocity_y.append(velocity[1])
     velocity_z.append(velocity[2])
 
 def plot_data():
-    # Convert the data to columns for plotting
-    data = list(zip(*N))  # Transpose rows to columns
-
-    # Generate x values (indices)
-    x = range(len(data[0]))
-
-    # Create a figure and axis for subplots
-    fig1, axs = plt.subplots(5, 1, figsize=(10, 8))
-
-    for i in x:
-        diff = max(N[i]) - min(N[i])
-        D.append(diff)
-    
-    axs[0].plot(timestamps, D, 'o', label=f'Motor diff')
-    axs[0].set_xlabel('Timestamps')
-    axs[0].set_ylabel(f'Motor diff')
-    axs[0].legend()
-
-    # Plot each column in a separate subplot
-    for i in range(4):
-        axs[i+1].plot(timestamps, data[i], 'o', label=f'Motor {i}')
-        axs[i+1].set_xlabel('Timestamps')
-        axs[i+1].set_ylabel(f'Motor {i}')
-        axs[i+1].legend()
-
-    # Add a title to the figure
-    fig1.suptitle('nx4 List Plot')
-
-    # Adjust layout to prevent overlap
-    fig1.tight_layout(rect=[0, 0, 1, 0.96])
-
-    # Show the plot
-    # plt.show()
-
-
     plt.figure(figsize=(14, 10))
 
     plt.subplot(3, 3, 1)
@@ -200,38 +155,31 @@ def plot_data():
     plt.legend()
 
     plt.subplot(3, 3, 4)
-    plt.plot(timestamps, quaternion_x, 'o', label='quaternion_x')
-    plt.title('Quaternion Data')
+    plt.plot(timestamps, attitude_x, 'o', label='attitude_x')
+    plt.title('attitude Data')
     plt.xlabel('Timestamp')
-    plt.ylabel('Quaternion Value')
+    plt.ylabel('attitude Value')
     plt.legend()
 
     plt.subplot(3, 3, 5)
-    plt.plot(timestamps, quaternion_y, 'o', label='quaternion_y')
-    plt.title('Quaternion Data')
+    plt.plot(timestamps, attitude_y, 'o', label='attitude_y')
+    plt.title('attitude Data')
     plt.xlabel('Timestamp')
-    plt.ylabel('Quaternion Value')
+    plt.ylabel('attitude Value')
     plt.legend()
 
     plt.subplot(3, 3, 6)
-    plt.plot(timestamps, quaternion_z, 'o', label='quaternion_z')
-    plt.title('Quaternion Data')
+    plt.plot(timestamps, attitude_z, 'o', label='attitude_z')
+    plt.title('attitude Data')
     plt.xlabel('Timestamp')
-    plt.ylabel('Quaternion Value')
-    plt.legend()
-
-    plt.subplot(3, 3, 7)
-    plt.plot(timestamps, quaternion_w, 'o', label='quaternion_w')
-    plt.title('Quaternion Data')
-    plt.xlabel('Timestamp')
-    plt.ylabel('Quaternion Value')
+    plt.ylabel('attitude Value')
     plt.legend()
 
     plt.tight_layout()
     plt.show()
 
 # Path to the folder containing JSON files
-folder_path = '~/JSON/unity'
+folder_path = 'JSON/unity'
 
 # List all files in the directory
 filenames = sorted(os.listdir(folder_path))

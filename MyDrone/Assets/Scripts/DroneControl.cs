@@ -4,6 +4,7 @@ using System.Text;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
@@ -23,7 +24,7 @@ public class DroneControl : MonoBehaviour
     [SerializeField] private float MaxDiff0Roll = 0.5f;
 
 
-    private const int listenPort = 9002; // Change this to your desired port number
+    private const int listenPort = 9004; // Change this to your desired port number
     private UdpClient client;
     private UdpClient send;
     private IPEndPoint DroneIP;
@@ -48,7 +49,6 @@ public class DroneControl : MonoBehaviour
 
     void Start()
     {
-        
         client = new UdpClient(listenPort);
         client.Client.ReceiveTimeout = 1000; // Timeout 1 second
         send = new UdpClient();
@@ -66,9 +66,11 @@ public class DroneControl : MonoBehaviour
         lastVelocity = new double[3];
         ringBuffer = new RingBuffer(400, 16);
 
-        receiveThread = new Thread(new ThreadStart(receivedData));
+        receiveThread = new Thread(new ThreadStart(ReceivedData));
         receiveThread.IsBackground = true;
         receiveThread.Start();
+
+        StartCoroutine(SendData());
     }
 
     /*  Ardupilot (NED) / Unity (EUN)
@@ -86,15 +88,9 @@ public class DroneControl : MonoBehaviour
             return;
         }
 
-        // double lastInterval = Time.realtimeSinceStartup;
-
-        string json;
         if ( ringBuffer.IsEmpty )
-        {
-            json = BuildJSON();
-            SendData(json);
             return;
-        }
+
         ushort[] pwns = ringBuffer.Dequeue();
         
         //drone.battery_dropped_voltage = drone.battery_voltage - drone.battery_resistance * drone.battery_current
@@ -107,7 +103,6 @@ public class DroneControl : MonoBehaviour
         for (int i = 0; i < engines.Count; i++)
         {
             engines[i].UpdateEngine(pwns[i], drone.battery_voltage);
-            // engines[i].UpdateEngine(1500, drone.battery_voltage);
             drone.battery_current += engines[i].GetCurrent();
             thrust += engines[i].GetThrust();
             moment.x += engines[i].GetPitch();
@@ -122,19 +117,9 @@ public class DroneControl : MonoBehaviour
         
         // Apply the Angular Velocity
         rb.angularVelocity = angVel;
-        // Debug.Log(moment + " " + angVel + " " + rb.angularVelocity);
 
         // Apply force and change moments
         rb.AddForce(engineForce);
-        // double timeNowM = Time.realtimeSinceStartup;
-
-        json = BuildJSON();
-        WriteJsonToFile(pwns, json);
-        SendData(json);
-        // double timeNowF = Time.realtimeSinceStartup;
-
-        // Debug.Log("M:" + (timeNowM - lastInterval));
-        // Debug.Log("F:" + (timeNowF - lastInterval));
     }
 
 
@@ -143,7 +128,7 @@ public class DroneControl : MonoBehaviour
         double timestamp = Time.realtimeSinceStartup;
         double[] gyro = ToArdupilotCoordinates(rb.angularVelocity);
         double[] position = ToArdupilotCoordinates(rb.position);
-        double[] quaternion = ToArdupilotQuaternion(rb.rotation);
+        double[] attitude = ToArdupilotCoordinates(rb.rotation.eulerAngles);
         double[] velocity = ToArdupilotCoordinates(rb.velocity);
         double[] accelBody = new double[3];
         accelBody[0] = (velocity[0] - lastVelocity[0])/ Time.fixedDeltaTime;
@@ -152,7 +137,7 @@ public class DroneControl : MonoBehaviour
         lastVelocity = velocity;
 
         IMU imu = new IMU(gyro, accelBody);
-        IMUData data = new IMUData(timestamp, imu, position, quaternion, velocity);
+        IMUData data = new IMUData(timestamp, imu, position, attitude, velocity);
 
         // Convert to JSON
         return ("\n" + JsonUtility.ToJson(data) + "\n");
@@ -185,7 +170,7 @@ public class DroneControl : MonoBehaviour
         return array;
     }
 
-    private void receivedData()
+    private void ReceivedData()
     {
         uint Count = 0;
         uint timeout = 0;
@@ -194,7 +179,6 @@ public class DroneControl : MonoBehaviour
             try
             {
                 // Receive UDP packet
-                
                 byte[] data = client.Receive(ref DroneIP);
                 if(!ArdupilotOnline)
                 {
@@ -205,6 +189,7 @@ public class DroneControl : MonoBehaviour
                 // Extract data
                 if (data.Length >= 12) // Ensure Receive data is of correct length
                 {
+
                     ushort magic = BitConverter.ToUInt16(data, 0);
                     if (magic != theMagic)
                     {
@@ -259,27 +244,22 @@ public class DroneControl : MonoBehaviour
             }
         }
     }
-
-    private void SendData(string json) 
-    { 
-        // Convert JSON to bytes
-        if(!ArdupilotOnline)
-            return;
-        byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
-        client.Send(jsonBytes, jsonBytes.Length, DroneIP);
-    }
-
-    private void OnDestroy()
+    
+    IEnumerator SendData()
     {
-        // Close the UDP client and stop receiving thread
-        if (client != null)
+        double lastInterval = Time.realtimeSinceStartup;
+        while (true)
         {
-            client.Close();
-            send.Close();
-        }
-        if (receiveThread != null)
-            receiveThread.Abort();
+            yield return new WaitForFixedUpdate();
+            if (!ArdupilotOnline)
+                continue;
 
+            string json = BuildJSON();
+            // byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            // client.Send(jsonBytes, jsonBytes.Length, DroneIP);
+            // WriteJsonToFile(json);
+            // Debug.Log("A"+json);
+        }
     }
 
     private void SimReset()
@@ -326,7 +306,22 @@ public class DroneControl : MonoBehaviour
         return gyro;
     }
 
-    static void WriteJsonToFile(ushort[] pwn, string json)
+     private void OnDestroy()
+    {
+        // Close the UDP client and stop receiving thread
+        if (client != null)
+        {
+            client.Close();
+            send.Close();
+        }
+        if (receiveThread != null)
+            receiveThread.Abort();
+        
+        StopAllCoroutines();
+    }
+
+
+    static void WriteJsonToFile(string json)
     {
         // Get the path to the user's home directory
         string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -337,10 +332,6 @@ public class DroneControl : MonoBehaviour
         // Write JSON string to the file
         using (StreamWriter streamWriter = File.CreateText(filePath))
         {
-            for (int i = 0; i < 4; i++)
-            {
-                streamWriter.Write(pwn[i]+" ");
-            }
             streamWriter.Write(json);
         }
     }

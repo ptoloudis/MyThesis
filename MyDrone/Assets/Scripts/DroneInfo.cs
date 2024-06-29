@@ -9,9 +9,6 @@ public class DroneInfo
     public float battery_dropped_voltage; // Volts
     public float battery_current; // Volts
     public float copter_mass = 1.282f; // Kg
-    public float copter_cd = 0.5f; 
-    public float copter_cd_ref_area = Mathf.PI * Mathf.Pow( 0.45f * 0.5f, 2);
-    public float denstity = 1.225f; // Kg/m^3
     public float copter_inertia; 
     
     public void Init()
