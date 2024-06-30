@@ -24,7 +24,7 @@ public class DroneControl : MonoBehaviour
     [SerializeField] private float MaxDiff0Roll = 0.5f;
 
 
-    private const int listenPort = 9004; // Change this to your desired port number
+    private const int listenPort = 9002; // Change this to your desired port number
     private UdpClient client;
     private UdpClient send;
     private IPEndPoint DroneIP;
@@ -255,8 +255,8 @@ public class DroneControl : MonoBehaviour
                 continue;
 
             string json = BuildJSON();
-            // byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
-            // client.Send(jsonBytes, jsonBytes.Length, DroneIP);
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            client.Send(jsonBytes, jsonBytes.Length, DroneIP);
             // WriteJsonToFile(json);
             // Debug.Log("A"+json);
         }
