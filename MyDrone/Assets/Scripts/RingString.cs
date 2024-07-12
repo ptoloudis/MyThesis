@@ -1,18 +1,16 @@
 using System;
 using UnityEngine;
 
-public class RingBuffer
+public class RingString
 {
-    private readonly ushort[][] buffer;
+    private readonly string[] buffer;
     private int head;
     private int tail;
     private int count;
-    private readonly int arraySize;
 
-    public RingBuffer(int size, int arraySize)
+    public RingString(int size)
     {
-        this.buffer = new ushort[size][];
-        this.arraySize = arraySize;
+        this.buffer = new string[size];
         this.head = 0;
         this.tail = 0;
         this.count = 0;
@@ -22,16 +20,16 @@ public class RingBuffer
 
     public bool IsFull => count == buffer.Length;
 
-    public void Enqueue(ushort[] item)
+    public void Enqueue(string item)
     {
         buffer[tail] = item;
         tail = (tail + 1) % buffer.Length;
         count++;
     }
 
-    public ushort[] Dequeue()
+    public string Dequeue()
     {
-        ushort[] item = buffer[head];
+        string item = buffer[head];
         head = (head + 1) % buffer.Length;
         count--;
 

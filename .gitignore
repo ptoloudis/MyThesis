@@ -46,6 +46,7 @@ MyDrone/UserSettings/
 MyDrone/obj/
 eeprom.bin
 logs/
+Build/
 mav.parm
 mav.tlog
 mav.tlog.raw

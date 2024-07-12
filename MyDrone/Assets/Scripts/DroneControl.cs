@@ -17,7 +17,13 @@ public class DroneControl : MonoBehaviour
 {
     [Header("Ardupilot Properties")]
     [SerializeField] private int theMagic = 18458;
-    [SerializeField] private int TimeOutMax = 10;
+
+    private int TimeOutMax = 5000;
+    private const float maxGyro = 2000 * Mathf.Deg2Rad;
+    private const float rotDragCoefficient = 0.2f;
+
+    private uint count = 0;
+    private uint timeout = 0;
 
 
     private const int listenPort = 9002; // Change this to your desired port number
@@ -27,11 +33,10 @@ public class DroneControl : MonoBehaviour
     private List<I_Engine> engines = new List<I_Engine>();
     protected Rigidbody rb;
     private double[] lastVelocity;
-    private Thread receiveThread;
+    private Thread SendThread;
     private DroneInfo drone;
     private bool ArdupilotOnline; 
-    private RingBuffer RBpwm;
-
+    private RingString RS;
 
     private void Awake()
     {
@@ -46,7 +51,7 @@ public class DroneControl : MonoBehaviour
     void Start()
     {
         client = new UdpClient(listenPort);
-        client.Client.ReceiveTimeout = 1000; // Timeout 1 second
+        client.Client.ReceiveTimeout = 1; // Timeout 1 second
         send = new UdpClient();
         DroneIP = new IPEndPoint(IPAddress.Any, 0);
        
@@ -60,13 +65,13 @@ public class DroneControl : MonoBehaviour
         drone.battery_dropped_voltage = 0;
 
         lastVelocity = new double[3];
-        RBpwm = new RingBuffer(400, 16);
+        RS = new RingString(400);
 
-        receiveThread = new Thread(new ThreadStart(ReceivedData));
-        receiveThread.IsBackground = true;
-        receiveThread.Start();
+        SendThread = new Thread(new ThreadStart(SendData));
+        SendThread.IsBackground = true;
+        SendThread.Start();
 
-        StartCoroutine(SendData());
+        StartCoroutine(BuildJson());
     }
 
     /*  Ardupilot (NED) / Unity (EUN)
@@ -78,188 +83,175 @@ public class DroneControl : MonoBehaviour
 
     void FixedUpdate()
     {
+        ushort[] pwms = ReceivedData();
+
         if (!ArdupilotOnline)
         {
             SimReset();
             return;
         }
 
-        if ( RBpwm.IsEmpty )
-            return;
-
-        ushort[] pwns = RBpwm.Dequeue();
-        
-        //drone.battery_dropped_voltage = drone.battery_voltage - drone.battery_resistance * drone.battery_current
-        drone.battery_dropped_voltage = drone.battery_voltage;
-        float thrust = 0;
-
+        drone.battery_dropped_voltage = drone.battery_voltage; // If battery resistance is negligible
+        float totalThrust = 0;
         drone.battery_current = 0;
-        Vector3 moment = Vector3.zero;
+        Vector3 totalMoment = Vector3.zero;
 
         for (int i = 0; i < engines.Count; i++)
         {
-            engines[i].UpdateEngine(pwns[i], drone.battery_voltage);
-            drone.battery_current += engines[i].GetCurrent();
-            thrust += engines[i].GetThrust();
-            moment.x += engines[i].GetPitch();
-            // TODO: Check if - is correct
-            moment.y += engines[i].GetYaw(); 
-            moment.z += engines[i].GetRoll();
-        }   
-        
+            var engine = engines[i];
+            engine.UpdateEngine(pwms[i], drone.battery_voltage);
+            drone.battery_current += engine.Current();
+            totalThrust += engine.Thrust();
+            totalMoment.x += engine.Pitch();
+            totalMoment.y += engine.Yaw();
+            totalMoment.z += engine.Roll();
+        }
 
-        Vector3 engineForce = rb.transform.up * thrust;
-        Vector3 angVel = CalculateAV(moment);
-        
-        // Apply the Angular Velocity
-        rb.angularVelocity = angVel;
+        Vector3 engineForce = rb.transform.up * totalThrust;
+        Vector3 angularVelocity = CalculateAV(totalMoment);
 
-        // Apply force and change moments
+        rb.angularVelocity = angularVelocity;
         rb.AddForce(engineForce);
     }
 
-     private Vector3 CalculateAV(Vector3 moment)
+    private Vector3 CalculateAV(Vector3 moment)
     {
-
-        // Calculate the Drag in rotation
+        // Cache angular velocity
         Vector3 gyro = rb.angularVelocity;
-        float rotDragCoefficient = 0.2f;
-        Vector3 rotDrag = Vector3.zero;
-        rotDrag.x = rotDragCoefficient * Mathf.Sign(gyro.x) * Mathf.Pow(gyro.x, 2);
-        rotDrag.y = rotDragCoefficient * Mathf.Sign(gyro.y) * Mathf.Pow(gyro.y, 2);
-        rotDrag.z = rotDragCoefficient * Mathf.Sign(gyro.z) * Mathf.Pow(gyro.z, 2);
 
-        // Calculate the rotation accel
+        // Drag in rotation
+        Vector3 rotDrag = new Vector3(
+            rotDragCoefficient * Mathf.Sign(gyro.x) * gyro.x * gyro.x,
+            rotDragCoefficient * Mathf.Sign(gyro.y) * gyro.y * gyro.y,
+            rotDragCoefficient * Mathf.Sign(gyro.z) * gyro.z * gyro.z
+        );
+
+        // Rotation acceleration
         Vector3 moments = moment - rotDrag;
         Vector3 rotAccel = moments / drone.copter_inertia;
 
-        // Calculate the new value
-        // Debug.Log(gyro + " " + rotAccel + " " + rb.position + "#" + rb.rotation);
-        gyro = gyro + rotAccel * Time.fixedDeltaTime;
-        gyro.x = Mathf.Clamp(gyro.x, -2000 * Mathf.Deg2Rad, 2000 * Mathf.Deg2Rad);
-        gyro.y = Mathf.Clamp(gyro.y, -2000 * Mathf.Deg2Rad, 2000 * Mathf.Deg2Rad);  
-        gyro.z = Mathf.Clamp(gyro.z, -2000 * Mathf.Deg2Rad, 2000 * Mathf.Deg2Rad);
+        // Update gyro with rotational acceleration
+        gyro += rotAccel * Time.fixedDeltaTime;
+
+        // Clamp gyro values
+        gyro.x = Mathf.Clamp(gyro.x, -maxGyro, maxGyro);
+        gyro.y = Mathf.Clamp(gyro.y, -maxGyro, maxGyro);
+        gyro.z = Mathf.Clamp(gyro.z, -maxGyro, maxGyro);
 
         return gyro;
     }
 
-    double[] ToArdupilotCoordinates(Vector3 unityCoordinates)
+    private ushort[] ReceivedData()
     {
-        // Create an array with 3 elements
-        double[] array = new double[3];
+        ushort[] pwm = new ushort[16];
 
-        // Assign Vector3 components to the array
-        array[0] = unityCoordinates.z;
-        array[1] = unityCoordinates.x;
-        array[2] = -unityCoordinates.y;
-
-        return array;
-    }
-
-    public double[] ToArdupilotQuaternion(Quaternion unityQuaternion)
-    {
-        // Create an array with 4 elements
-        double[] array = new double[4];
-
-        // Assign Vector3 components to the array
-        array[0] = unityQuaternion.w;
-        array[1] = unityQuaternion.z;
-        array[2] = unityQuaternion.x;
-        array[3] = -unityQuaternion.y;
-
-        return array;
-    }
-
-    private void ReceivedData()
-    {
-        uint Count = 0;
-        uint timeout = 0;
-        while (true)
+        try
         {
-            try
+            // Receive UDP packet
+            byte[] data = client.Receive(ref DroneIP);
+            if (!ArdupilotOnline)
             {
-                // Receive UDP packet
-                byte[] data = client.Receive(ref DroneIP);
-                if(!ArdupilotOnline)
-                {
-                    ArdupilotOnline = true;
-                    timeout = 0;
-                }
-
-                ushort magic = BitConverter.ToUInt16(data, 0);
-                if (magic != theMagic)
-                {
-                    // If not magic
-                    Debug.LogError("Receive data does not have the correct magic number.");
-                    continue;
-                }
-
-                ushort frameRate = BitConverter.ToUInt16(data, 2);
-                uint frameCount = BitConverter.ToUInt32(data, 4);
-                ushort[] pwm = new ushort[16];
-
-                if(Count >= frameCount)
-                    continue;
-                else if (frameCount != Count + 1)
-                    Debug.LogError("Missed packets detected.");
-
-                Count = frameCount;
-                // Extract pwm array
-                for (int i = 0; i < 16; i++)
-                {
-                    pwm[i] = BitConverter.ToUInt16(data, 8 + i * 2);
-                }
-
-                while (RBpwm.IsFull) { }
-                RBpwm.Enqueue(pwm);          
+                ArdupilotOnline = true;
+                timeout = 0;
             }
-            catch (SocketException ex)
+
+            if (BitConverter.ToUInt16(data, 0) != theMagic)
             {
-                if(ex.SocketErrorCode == SocketError.TimedOut)
+                // If not magic
+                Debug.LogError("Received data does not have the correct magic number.");
+                return pwm;
+            }
+
+            ushort frameRate = BitConverter.ToUInt16(data, 2);
+            uint frameCount = BitConverter.ToUInt32(data, 4);
+
+            if (count >= frameCount)
+                return pwm;
+            else if (frameCount > count + 1)
+                Debug.LogError("Missed packets detected. " + frameCount);
+            count = frameCount;
+
+            // Extract pwm array
+            Buffer.BlockCopy(data, 8, pwm, 0, 32); // 16 * 2 bytes for 16 ushort values
+            return pwm;
+
+        }
+        catch (SocketException ex)
+        {
+            if (ex.SocketErrorCode == SocketError.TimedOut)
+            {
+                timeout++;
+                if (timeout > TimeOutMax)
                 {
-                    timeout++;
-                    if(timeout > TimeOutMax)
-                    {
-                        ArdupilotOnline = false;
-                        timeout = 0;
-                        Debug.LogError("Offline");
-                    }
+                    ArdupilotOnline = false;
+                    timeout = 0;
+                    Debug.LogError("Offline");
                 }
-                else 
-                {
-                    Debug.LogError("UDP Receive Error: " + ex.ToString());
-                }
+            }
+            else
+            {
+                Debug.LogError("UDP Receive Error: " + ex.ToString());
             }
         }
+        
+        return pwm;
     }
-    
-    IEnumerator SendData()
+
+    private IEnumerator BuildJson()
     {
+        double[] gyro = new double[3];
+        double[] position = new double[3];
+        double[] attitude = new double[3];
+        double[] velocity = new double[3];
+        double[] accelBody = new double[3];
+
         while (true)
         {
             yield return new WaitForFixedUpdate();
+
             if (!ArdupilotOnline)
                 continue;
 
             double timestamp = Time.realtimeSinceStartup;
-            double[] gyro = ToArdupilotCoordinates(rb.angularVelocity);
-            double[] position = ToArdupilotCoordinates(rb.position);
-            double[] attitude = ToArdupilotCoordinates(rb.rotation.eulerAngles);
-            double[] velocity = ToArdupilotCoordinates(rb.velocity);
-            double[] accelBody = new double[3];
-            accelBody[0] = (velocity[0] - lastVelocity[0])/ Time.fixedDeltaTime;
-            accelBody[1] = (velocity[1] - lastVelocity[1])/ Time.fixedDeltaTime;
-            accelBody[2] = (velocity[2] - lastVelocity[2])/ Time.fixedDeltaTime - Physics.gravity.magnitude;
-            lastVelocity = velocity;
+
+            ToArdupilotCoordinates(rb.angularVelocity, gyro);
+            ToArdupilotCoordinates(rb.position, position);
+            ToArdupilotCoordinates(rb.rotation.eulerAngles, attitude);
+            ToArdupilotCoordinates(rb.velocity, velocity);
+
+            accelBody[0] = (velocity[0] - lastVelocity[0]) / Time.fixedDeltaTime;
+            accelBody[1] = (velocity[1] - lastVelocity[1]) / Time.fixedDeltaTime;
+            accelBody[2] = (velocity[2] - lastVelocity[2]) / Time.fixedDeltaTime - Physics.gravity.magnitude;
+
+            Array.Copy(velocity, lastVelocity, velocity.Length);
 
             IMU imu = new IMU(gyro, accelBody);
             IMUData data = new IMUData(timestamp, imu, position, attitude, velocity);
 
             // Convert to JSON
-            string json = "\n" + JsonUtility.ToJson(data) + "\n";
-            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
-            client.Send(jsonBytes, jsonBytes.Length, DroneIP); 
+            string json = JsonUtility.ToJson(data);          
+            if (!RS.IsFull)
+                RS.Enqueue(json);
         }
+    }
+
+    private void SendData()
+    {
+        while (true)
+        {
+            while ( RS.IsEmpty) { }
+            string json = "\n" + RS.Dequeue() + "\n";
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            client.Send(jsonBytes, jsonBytes.Length, DroneIP);
+        }
+    }
+
+    private void ToArdupilotCoordinates(Vector3 unityCoordinates, double[] array)
+    {
+        // Assign Vector3 components to the array
+        array[0] = unityCoordinates.z;
+        array[1] = unityCoordinates.x;
+        array[2] = -unityCoordinates.y;
     }
 
     private void SimReset()
@@ -273,7 +265,7 @@ public class DroneControl : MonoBehaviour
 
     }
 
-     private void OnDestroy()
+    private void OnDestroy()
     {
         // Close the UDP client and stop receiving thread
         if (client != null)
@@ -281,9 +273,9 @@ public class DroneControl : MonoBehaviour
             client.Close();
             send.Close();
         }
-        if (receiveThread != null)
-            receiveThread.Abort();
-
+        if (SendThread != null)
+            SendThread.Abort();
+      
         StopAllCoroutines();
     }
 

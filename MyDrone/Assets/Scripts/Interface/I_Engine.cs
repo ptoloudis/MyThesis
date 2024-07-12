@@ -7,9 +7,9 @@ public interface I_Engine
     void InitEngine();
     void UpdateEngine(ushort pwn, float battery_dropped_voltage);
     void Reset();
-    float GetCurrent();
-    float GetThrust();
-    float GetRoll();
-    float GetPitch();
-    float GetYaw();
+    float Current();
+    float Thrust();
+    float Roll();
+    float Pitch();
+    float Yaw();
 }
