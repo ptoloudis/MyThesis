@@ -4,6 +4,7 @@ using System.Text;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,11 +25,10 @@ public class DroneControl : MonoBehaviour
 
     private uint count = 0;
     private uint timeout = 0;
-
+    private int x = 0;
 
     private const int listenPort = 9002; // Change this to your desired port number
     private UdpClient client;
-    private UdpClient send;
     private IPEndPoint DroneIP;
     private List<I_Engine> engines = new List<I_Engine>();
     protected Rigidbody rb;
@@ -37,26 +37,33 @@ public class DroneControl : MonoBehaviour
     private DroneInfo drone;
     private bool ArdupilotOnline; 
     private RingString RS;
+    private RingBuffer RBpwm;
+
+    // Make the GUI Frame Rate
+    private float updateCount = 0;
+    private float fixedUpdateCount = 0;
+    private float test = 0;
+    private float updateUpdateCountPerSecond;
+    private float updateFixedUpdateCountPerSecond;
+    private float testCountPerSecond;
 
     private void Awake()
     {
+        // For Rigidbody
         rb = GetComponent<Rigidbody>();
         if (!rb)
             Debug.LogError("Not Found Rigidbody");
         drone = new DroneInfo();
         drone.Init();
         rb.mass = drone.copter_mass;
-    }
-
-    void Start()
-    {
+    
+        // UDP 
         client = new UdpClient(listenPort);
         client.Client.ReceiveTimeout = 1; // Timeout 1 second
-        send = new UdpClient();
         DroneIP = new IPEndPoint(IPAddress.Any, 0);
-       
-        ArdupilotOnline = false;
+        ArdupilotOnline = false; // See the Ardupilot is Online
 
+        // Get the engines & init them.
         engines = GetComponentsInChildren<I_Engine>().ToList<I_Engine>();
         for (int i = 0; i < engines.Count; i++)
         {
@@ -64,14 +71,18 @@ public class DroneControl : MonoBehaviour
         }
         drone.battery_dropped_voltage = 0;
 
+        // Init help var. 
         lastVelocity = new double[3];
         RS = new RingString(400);
+        RBpwm = new RingBuffer(400, 16);
 
+        // Create & start the nessasy thread.
         SendThread = new Thread(new ThreadStart(SendData));
         SendThread.IsBackground = true;
         SendThread.Start();
 
         StartCoroutine(BuildJson());
+        StartCoroutine(Loop());
     }
 
     /*  Ardupilot (NED) / Unity (EUN)
@@ -81,15 +92,23 @@ public class DroneControl : MonoBehaviour
         ardupilot_z = -unity_y;
     */
 
+    void Update()
+    {
+        updateCount += 1;
+    }
+
     void FixedUpdate()
     {
-        ushort[] pwms = ReceivedData();
+        fixedUpdateCount += 1;
 
         if (!ArdupilotOnline)
         {
             SimReset();
             return;
         }
+
+        while (RBpwm.IsEmpty) { }
+        ushort[] pwms = RBpwm.Dequeue();
 
         drone.battery_dropped_voltage = drone.battery_voltage; // If battery resistance is negligible
         float totalThrust = 0;
@@ -168,7 +187,7 @@ public class DroneControl : MonoBehaviour
             if (count >= frameCount)
                 return pwm;
             else if (frameCount > count + 1)
-                Debug.LogError("Missed packets detected. " + frameCount);
+                Debug.LogError("Missed packets detected.");
             count = frameCount;
 
             // Extract pwm array
@@ -209,9 +228,6 @@ public class DroneControl : MonoBehaviour
         {
             yield return new WaitForFixedUpdate();
 
-            if (!ArdupilotOnline)
-                continue;
-
             double timestamp = Time.realtimeSinceStartup;
 
             ToArdupilotCoordinates(rb.angularVelocity, gyro);
@@ -229,17 +245,24 @@ public class DroneControl : MonoBehaviour
             IMUData data = new IMUData(timestamp, imu, position, attitude, velocity);
 
             // Convert to JSON
-            string json = JsonUtility.ToJson(data);          
-            if (!RS.IsFull)
+            string json = JsonUtility.ToJson(data);         
+            if (!RS.IsFull && ArdupilotOnline)
                 RS.Enqueue(json);
+
+            test++;
         }
     }
+
 
     private void SendData()
     {
         while (true)
         {
-            while ( RS.IsEmpty) { }
+            ushort[] pwms = ReceivedData();
+            while (RBpwm.IsFull) { }
+            RBpwm.Enqueue(pwms);           
+
+            while (RS.IsEmpty) { }
             string json = "\n" + RS.Dequeue() + "\n";
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             client.Send(jsonBytes, jsonBytes.Length, DroneIP);
@@ -269,23 +292,21 @@ public class DroneControl : MonoBehaviour
     {
         // Close the UDP client and stop receiving thread
         if (client != null)
-        {
             client.Close();
-            send.Close();
-        }
+
         if (SendThread != null)
             SendThread.Abort();
       
         StopAllCoroutines();
     }
 
-    static void WriteJsonToFile(string json)
+    static void WriteJsonToFile(string json, int x)
     {
         // Get the path to the user's home directory
         string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         // Construct the full file path
-        string filePath = Path.Combine(homeDirectory, "MyDrone","JSON", "unity", Time.realtimeSinceStartup +".json");
+        string filePath = Path.Combine(homeDirectory, "MyDrone","JSON", "unity", x +".json");
 
         // Write JSON string to the file
         using (StreamWriter streamWriter = File.CreateText(filePath))
@@ -294,4 +315,28 @@ public class DroneControl : MonoBehaviour
         }
     }
 
+    void OnGUI()
+    {
+        GUIStyle fontSize = new GUIStyle(GUI.skin.GetStyle("label"));
+        fontSize.fontSize = 24;
+        GUI.Label(new Rect(100, 100, 200, 50), "Update: " + updateUpdateCountPerSecond.ToString(), fontSize);
+        GUI.Label(new Rect(100, 150, 200, 50), "FixedUpdate: " + updateFixedUpdateCountPerSecond.ToString(), fontSize);
+        GUI.Label(new Rect(100, 200, 200, 50), "Test: " + testCountPerSecond.ToString(), fontSize);
+    }
+
+    IEnumerator Loop()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(1);
+            Debug.Log(updateCount + " " + updateCount + " " + test);
+            updateUpdateCountPerSecond = updateCount;
+            updateFixedUpdateCountPerSecond = fixedUpdateCount;
+            testCountPerSecond = test;
+
+            updateCount = 0;
+            fixedUpdateCount = 0;
+            test = 0;
+        }
+    }
 }

@@ -12,7 +12,7 @@ struct_format = 'HHI16H'
 
 # Example data for the structure
 magic = 18458
-frame_rate = 400
+frame_rate = 500
 frame_count = 0
 pwm = [1600] * 16  # Example values, you can replace these with actual PWM values
 
