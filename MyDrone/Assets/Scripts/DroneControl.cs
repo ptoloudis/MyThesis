@@ -37,7 +37,6 @@ public class DroneControl : MonoBehaviour
     private DroneInfo drone;
     private bool ArdupilotOnline; 
     private RingString RS;
-    private RingBuffer RBpwm;
 
     // Make the GUI Frame Rate
     private float updateCount = 0;
@@ -74,12 +73,11 @@ public class DroneControl : MonoBehaviour
         // Init help var. 
         lastVelocity = new double[3];
         RS = new RingString(400);
-        RBpwm = new RingBuffer(400, 16);
 
         // Create & start the nessasy thread.
-        SendThread = new Thread(new ThreadStart(SendData));
-        SendThread.IsBackground = true;
-        SendThread.Start();
+        // SendThread = new Thread(new ThreadStart(SendData));
+        // SendThread.IsBackground = true;
+        // SendThread.Start();
 
         StartCoroutine(BuildJson());
         StartCoroutine(Loop());
@@ -100,15 +98,13 @@ public class DroneControl : MonoBehaviour
     void FixedUpdate()
     {
         fixedUpdateCount += 1;
+        ushort[] pwms = ReceivedData();
 
         if (!ArdupilotOnline)
         {
             SimReset();
             return;
         }
-
-        while (RBpwm.IsEmpty) { }
-        ushort[] pwms = RBpwm.Dequeue();
 
         drone.battery_dropped_voltage = drone.battery_voltage; // If battery resistance is negligible
         float totalThrust = 0;
@@ -228,6 +224,9 @@ public class DroneControl : MonoBehaviour
         {
             yield return new WaitForFixedUpdate();
 
+            if (!ArdupilotOnline)
+                continue;
+
             double timestamp = Time.realtimeSinceStartup;
 
             ToArdupilotCoordinates(rb.angularVelocity, gyro);
@@ -245,25 +244,25 @@ public class DroneControl : MonoBehaviour
             IMUData data = new IMUData(timestamp, imu, position, attitude, velocity);
 
             // Convert to JSON
-            string json = JsonUtility.ToJson(data);         
-            if (!RS.IsFull && ArdupilotOnline)
-                RS.Enqueue(json);
+            // string json = JsonUtility.ToJson(data);         
+            // if (!RS.IsFull)
+            //     RS.Enqueue(json);
 
+            string json = "\n" + JsonUtility.ToJson(data) + "\n";
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            client.Send(jsonBytes, jsonBytes.Length, DroneIP);
             test++;
         }
     }
-
 
     private void SendData()
     {
         while (true)
         {
-            ushort[] pwms = ReceivedData();
-            while (RBpwm.IsFull) { }
-            RBpwm.Enqueue(pwms);           
-
             while (RS.IsEmpty) { }
             string json = "\n" + RS.Dequeue() + "\n";
+            x++;
+            WriteJsonToFile(json, x);
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             client.Send(jsonBytes, jsonBytes.Length, DroneIP);
         }
