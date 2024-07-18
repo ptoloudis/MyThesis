@@ -34,9 +34,12 @@ public class DroneControl : MonoBehaviour
     protected Rigidbody rb;
     private double[] lastVelocity;
     private Thread SendThread;
+    private Thread ReceiveThread;
     private DroneInfo drone;
     private bool ArdupilotOnline; 
     private RingString RS;
+    private RingBuffer RBpwm;
+
 
     // Make the GUI Frame Rate
     private float updateCount = 0;
@@ -58,7 +61,7 @@ public class DroneControl : MonoBehaviour
     
         // UDP 
         client = new UdpClient(listenPort);
-        client.Client.ReceiveTimeout = 1; // Timeout 1 second
+        client.Client.ReceiveTimeout = 2; // Timeout 2 ms
         DroneIP = new IPEndPoint(IPAddress.Any, 0);
         ArdupilotOnline = false; // See the Ardupilot is Online
 
@@ -72,12 +75,18 @@ public class DroneControl : MonoBehaviour
 
         // Init help var. 
         lastVelocity = new double[3];
-        RS = new RingString(400);
 
+        RS = new RingString(400);
+        RBpwm = new RingBuffer(400, 16);
+        
         // Create & start the nessasy thread.
         // SendThread = new Thread(new ThreadStart(SendData));
         // SendThread.IsBackground = true;
         // SendThread.Start();
+
+        // ReceiveThread = new Thread(new ThreadStart(ReceivedData));
+        // ReceiveThread.IsBackground = true;
+        // ReceiveThread.Start();
 
         StartCoroutine(BuildJson());
         StartCoroutine(Loop());
@@ -98,7 +107,9 @@ public class DroneControl : MonoBehaviour
     void FixedUpdate()
     {
         fixedUpdateCount += 1;
-        ushort[] pwms = ReceivedData();
+        // ushort[] pwms = ReceivedData();
+        while (RBpwm.IsEmpty) { }
+        ushort[] pwms = RBpwm.Dequeue();
 
         if (!ArdupilotOnline)
         {
@@ -156,7 +167,7 @@ public class DroneControl : MonoBehaviour
         return gyro;
     }
 
-    private ushort[] ReceivedData()
+    private ushort[] ReceivedData() // Not THREAD 
     {
         ushort[] pwm = new ushort[16];
 
@@ -212,6 +223,66 @@ public class DroneControl : MonoBehaviour
         return pwm;
     }
 
+    // private void ReceivedData()
+    // {
+    //     ushort[] pwm = new ushort[16];
+
+    //     while (true)
+    //     {
+            
+    //         try
+    //         {
+    //             // Receive UDP packet
+    //             byte[] data = client.Receive(ref DroneIP);
+    //             if (!ArdupilotOnline)
+    //             {
+    //                 ArdupilotOnline = true;
+    //                 timeout = 0;
+    //             }
+
+    //             if (BitConverter.ToUInt16(data, 0) != theMagic)
+    //             {
+    //                 // If not magic
+    //                 Debug.LogError("Received data does not have the correct magic number.");
+    //                 continue;
+    //             }
+
+    //             ushort frameRate = BitConverter.ToUInt16(data, 2);
+    //             uint frameCount = BitConverter.ToUInt32(data, 4);
+
+    //             if (count >= frameCount)
+    //                 continue;
+    //             else if (frameCount > count + 1)
+    //                 Debug.LogError("Missed packets detected.");
+    //             count = frameCount;
+
+    //             // Extract pwm array
+    //             Buffer.BlockCopy(data, 8, pwm, 0, 32); // 16 * 2 bytes for 16 ushort values
+    //             while (RBpwm.IsFull) { }
+    //             RBpwm.Enqueue(pwm);
+
+    //         }
+    //         catch (SocketException ex)
+    //         {
+    //             if (ex.SocketErrorCode == SocketError.TimedOut)
+    //             {
+    //                 timeout++;
+    //                 if (timeout > TimeOutMax)
+    //                 {
+    //                     ArdupilotOnline = false;
+    //                     timeout = 0;
+    //                     Debug.LogError("Offline");
+    //                 }
+    //             }
+    //             else
+    //             {
+    //                 Debug.LogError("UDP Receive Error: " + ex.ToString());
+    //             }
+    //         }
+            
+    //     }
+    // }
+
     private IEnumerator BuildJson()
     {
         double[] gyro = new double[3];
@@ -248,10 +319,12 @@ public class DroneControl : MonoBehaviour
             // if (!RS.IsFull)
             //     RS.Enqueue(json);
 
+            
             string json = "\n" + JsonUtility.ToJson(data) + "\n";
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             client.Send(jsonBytes, jsonBytes.Length, DroneIP);
             test++;
+            
         }
     }
 
@@ -259,12 +332,16 @@ public class DroneControl : MonoBehaviour
     {
         while (true)
         {
+            // ushort[] pwms = ReceivedData();
+            // while (RBpwm.IsFull) { }
+            // RBpwm.Enqueue(pwms);
+
+
             while (RS.IsEmpty) { }
             string json = "\n" + RS.Dequeue() + "\n";
-            x++;
-            WriteJsonToFile(json, x);
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             client.Send(jsonBytes, jsonBytes.Length, DroneIP);
+            test++;
         }
     }
 
@@ -296,6 +373,9 @@ public class DroneControl : MonoBehaviour
         if (SendThread != null)
             SendThread.Abort();
       
+        if (ReceiveThread != null)
+            ReceiveThread.Abort();
+
         StopAllCoroutines();
     }
 
