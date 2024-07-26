@@ -44,6 +44,7 @@ MyDrone/Packages/
 MyDrone/ProjectSettings/
 MyDrone/UserSettings/
 MyDrone/obj/
+MyDrone/Temp/
 eeprom.bin
 logs/
 Build/

@@ -1,16 +1,15 @@
+//#define notSOLO
+
 using UnityEngine;
 using System;
 using System.Text;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
-using System.Runtime.InteropServices;
-
 
 [RequireComponent(typeof(Rigidbody))]
 
@@ -36,10 +35,8 @@ public class DroneControl : MonoBehaviour
     private Thread SendThread;
     private Thread ReceiveThread;
     private DroneInfo drone;
-    private bool ArdupilotOnline; 
+    private bool ArdupilotOnline;
     private RingString RS;
-    private RingBuffer RBpwm;
-
 
     // Make the GUI Frame Rate
     private float updateCount = 0;
@@ -49,7 +46,7 @@ public class DroneControl : MonoBehaviour
     private float updateFixedUpdateCountPerSecond;
     private float testCountPerSecond;
 
-    private void Awake()
+    private void Start()
     {
         // For Rigidbody
         rb = GetComponent<Rigidbody>();
@@ -58,7 +55,7 @@ public class DroneControl : MonoBehaviour
         drone = new DroneInfo();
         drone.Init();
         rb.mass = drone.copter_mass;
-    
+
         // UDP 
         client = new UdpClient(listenPort);
         client.Client.ReceiveTimeout = 2; // Timeout 2 ms
@@ -77,16 +74,14 @@ public class DroneControl : MonoBehaviour
         lastVelocity = new double[3];
 
         RS = new RingString(400);
-        RBpwm = new RingBuffer(400, 16);
-        
-        // Create & start the nessasy thread.
-        // SendThread = new Thread(new ThreadStart(SendData));
-        // SendThread.IsBackground = true;
-        // SendThread.Start();
 
-        // ReceiveThread = new Thread(new ThreadStart(ReceivedData));
-        // ReceiveThread.IsBackground = true;
-        // ReceiveThread.Start();
+        // Create & start the nessasy thread.
+
+#if notSOLO
+        SendThread = new Thread(new ThreadStart(SendData));
+        SendThread.IsBackground = true;
+        SendThread.Start();
+#endif
 
         StartCoroutine(BuildJson());
         StartCoroutine(Loop());
@@ -107,15 +102,16 @@ public class DroneControl : MonoBehaviour
     void FixedUpdate()
     {
         fixedUpdateCount += 1;
-        // ushort[] pwms = ReceivedData();
-        while (RBpwm.IsEmpty) { }
-        ushort[] pwms = RBpwm.Dequeue();
+        ushort[] pwms = ReceivedData();
 
         if (!ArdupilotOnline)
         {
             SimReset();
             return;
         }
+
+        if (pwms[0] == 0)
+            return;
 
         drone.battery_dropped_voltage = drone.battery_voltage; // If battery resistance is negligible
         float totalThrust = 0;
@@ -127,10 +123,10 @@ public class DroneControl : MonoBehaviour
             var engine = engines[i];
             engine.UpdateEngine(pwms[i], drone.battery_voltage);
             drone.battery_current += engine.Current();
-            totalThrust += engine.Thrust();
+            totalThrust += engine.Thrust(); 
             totalMoment.x += engine.Pitch();
-            totalMoment.y += engine.Yaw();
-            totalMoment.z += engine.Roll();
+            totalMoment.y += engine.Yaw(); 
+            totalMoment.z -= engine.Roll();
         }
 
         Vector3 engineForce = rb.transform.up * totalThrust;
@@ -175,11 +171,9 @@ public class DroneControl : MonoBehaviour
         {
             // Receive UDP packet
             byte[] data = client.Receive(ref DroneIP);
-            if (!ArdupilotOnline)
-            {
-                ArdupilotOnline = true;
-                timeout = 0;
-            }
+
+            ArdupilotOnline = true;
+            timeout = 0;
 
             if (BitConverter.ToUInt16(data, 0) != theMagic)
             {
@@ -219,69 +213,9 @@ public class DroneControl : MonoBehaviour
                 Debug.LogError("UDP Receive Error: " + ex.ToString());
             }
         }
-        
+
         return pwm;
     }
-
-    // private void ReceivedData()
-    // {
-    //     ushort[] pwm = new ushort[16];
-
-    //     while (true)
-    //     {
-            
-    //         try
-    //         {
-    //             // Receive UDP packet
-    //             byte[] data = client.Receive(ref DroneIP);
-    //             if (!ArdupilotOnline)
-    //             {
-    //                 ArdupilotOnline = true;
-    //                 timeout = 0;
-    //             }
-
-    //             if (BitConverter.ToUInt16(data, 0) != theMagic)
-    //             {
-    //                 // If not magic
-    //                 Debug.LogError("Received data does not have the correct magic number.");
-    //                 continue;
-    //             }
-
-    //             ushort frameRate = BitConverter.ToUInt16(data, 2);
-    //             uint frameCount = BitConverter.ToUInt32(data, 4);
-
-    //             if (count >= frameCount)
-    //                 continue;
-    //             else if (frameCount > count + 1)
-    //                 Debug.LogError("Missed packets detected.");
-    //             count = frameCount;
-
-    //             // Extract pwm array
-    //             Buffer.BlockCopy(data, 8, pwm, 0, 32); // 16 * 2 bytes for 16 ushort values
-    //             while (RBpwm.IsFull) { }
-    //             RBpwm.Enqueue(pwm);
-
-    //         }
-    //         catch (SocketException ex)
-    //         {
-    //             if (ex.SocketErrorCode == SocketError.TimedOut)
-    //             {
-    //                 timeout++;
-    //                 if (timeout > TimeOutMax)
-    //                 {
-    //                     ArdupilotOnline = false;
-    //                     timeout = 0;
-    //                     Debug.LogError("Offline");
-    //                 }
-    //             }
-    //             else
-    //             {
-    //                 Debug.LogError("UDP Receive Error: " + ex.ToString());
-    //             }
-    //         }
-            
-    //     }
-    // }
 
     private IEnumerator BuildJson()
     {
@@ -315,16 +249,18 @@ public class DroneControl : MonoBehaviour
             IMUData data = new IMUData(timestamp, imu, position, attitude, velocity);
 
             // Convert to JSON
-            // string json = JsonUtility.ToJson(data);         
-            // if (!RS.IsFull)
-            //     RS.Enqueue(json);
 
-            
+#if notSOLO
+             string json = JsonUtility.ToJson(data);         
+             if (!RS.IsFull)
+                 RS.Enqueue(json);
+
+#else
             string json = "\n" + JsonUtility.ToJson(data) + "\n";
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             client.Send(jsonBytes, jsonBytes.Length, DroneIP);
             test++;
-            
+#endif
         }
     }
 
@@ -332,11 +268,6 @@ public class DroneControl : MonoBehaviour
     {
         while (true)
         {
-            // ushort[] pwms = ReceivedData();
-            // while (RBpwm.IsFull) { }
-            // RBpwm.Enqueue(pwms);
-
-
             while (RS.IsEmpty) { }
             string json = "\n" + RS.Dequeue() + "\n";
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
@@ -372,7 +303,7 @@ public class DroneControl : MonoBehaviour
 
         if (SendThread != null)
             SendThread.Abort();
-      
+
         if (ReceiveThread != null)
             ReceiveThread.Abort();
 
@@ -385,7 +316,7 @@ public class DroneControl : MonoBehaviour
         string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         // Construct the full file path
-        string filePath = Path.Combine(homeDirectory, "MyDrone","JSON", "unity", x +".json");
+        string filePath = Path.Combine(homeDirectory, "MyDrone", "JSON", "unity", x + ".json");
 
         // Write JSON string to the file
         using (StreamWriter streamWriter = File.CreateText(filePath))
@@ -408,7 +339,7 @@ public class DroneControl : MonoBehaviour
         while (true)
         {
             yield return new WaitForSeconds(1);
-            Debug.Log(updateCount + " " + updateCount + " " + test);
+            //Debug.Log(updateCount + " " + updateCount + " " + test);
             updateUpdateCountPerSecond = updateCount;
             updateFixedUpdateCountPerSecond = fixedUpdateCount;
             testCountPerSecond = test;

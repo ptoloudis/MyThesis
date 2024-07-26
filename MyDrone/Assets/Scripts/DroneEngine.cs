@@ -63,6 +63,7 @@ public class DroneEngine : MonoBehaviour, I_Engine
 
     public void UpdateEngine(ushort pwm, float battery_dropped_voltage)
     {
+        //Debug.Log(delta);
         // Calculate the throttle
         float throttle = Mathf.Clamp((pwm - ServoMin) / (ServoMax - ServoMin), 0, 1);
 
@@ -81,7 +82,7 @@ public class DroneEngine : MonoBehaviour, I_Engine
         float rps = Mathf.Max(w1 / twoPi, 0); // For the negative rps
 
         // Calculate the thrust (with fudge factor)
-        thrust = 5.5f * prop_TConst * density * Mathf.Pow(rps, 2) * Mathf.Pow(prop_diameter, 4);
+        thrust = 4.5f * prop_TConst * density * Mathf.Pow(rps, 2) * Mathf.Pow(prop_diameter, 4);
 
         // Update
         rpm = rps * 60;
