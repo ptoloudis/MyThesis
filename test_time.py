@@ -23,7 +23,7 @@ UDP_PORT = 9002       # Port to send to
 # Create a socket object
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-interval = 1.0/400;
+interval = 1.0/frame_rate;
 
 try:
     while True:

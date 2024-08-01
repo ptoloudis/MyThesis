@@ -219,9 +219,11 @@ public class DroneControl : MonoBehaviour
 
     private IEnumerator BuildJson()
     {
-        double[] gyro = new double[3];
+        // double[] gyro = new double[3];
+        double[] gyro = {0,0,0};
         double[] position = new double[3];
-        double[] attitude = new double[3];
+        // double[] attitude = new double[3];
+        double[] attitude = {0,0,0};
         double[] velocity = new double[3];
         double[] accelBody = new double[3];
 
@@ -236,7 +238,7 @@ public class DroneControl : MonoBehaviour
 
             ToArdupilotCoordinates(rb.angularVelocity, gyro);
             ToArdupilotCoordinates(rb.position, position);
-            ToArdupilotCoordinates(rb.rotation.eulerAngles, attitude);
+            // ToArdupilotCoordinates(rb.rotation.eulerAngles, attitude);
             ToArdupilotCoordinates(rb.velocity, velocity);
 
             accelBody[0] = (velocity[0] - lastVelocity[0]) / Time.fixedDeltaTime;

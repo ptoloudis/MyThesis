@@ -108,8 +108,6 @@ public class DroneControlOr : MonoBehaviour
     {
         fixedUpdateCount += 1;
         ushort[] pwms = ReceivedData();
-        //while (RBpwm.IsEmpty) { }
-        //ushort[] pwms = RBpwm.Dequeue();
 
         if (!ArdupilotOnline)
         {
