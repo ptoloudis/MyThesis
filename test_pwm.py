@@ -12,7 +12,7 @@ struct_format = 'HHI16H'
 
 # Example data for the structure
 magic = 18458
-frame_rate = 400
+frame_rate = 500
 frame_count = 0
 pwm_value = 1100  # Initial PWM value
 
@@ -59,7 +59,7 @@ try:
         start_time = time.time()
 
         # Create the PWM array with the current PWM value
-        pwm = [1600] * 16
+        pwm = [1500] * 16
 
         # Create the binary data for the structure
         packed_data = struct.pack(struct_format, magic, frame_rate, frame_count, *pwm)
