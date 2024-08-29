@@ -33,6 +33,7 @@ public class DroneControlOr : MonoBehaviour
     private List<I_Engine> engines = new List<I_Engine>();
     protected Rigidbody rb;
     private double[] lastVelocity;
+    private Vector3 bf_velo;
     private Thread SendThread;
     private Thread ReceiveThread;
     private DroneInfo drone;
@@ -77,7 +78,9 @@ public class DroneControlOr : MonoBehaviour
         StartCoroutine(Loop());
     }
 
-    /*  Ardupilot (NED) / Unity (EUN)
+    /* 
+        Ardupilot (NED) / Unity (EUN)
+        
         The Unity to Ardupilot cartensinan.
         ardupilot_x = unity_z;
         ardupilot_y = unity_x;
@@ -85,15 +88,17 @@ public class DroneControlOr : MonoBehaviour
 
         The Unity to Ardupilot rotation.
         ardupilot_x = unity_z ; (roll)
-        ardupilot_y = unity_y ; (pitch)
-        ardupilot_z = unity_x ; (yaw)
+        ardupilot_y -= unity_x ; (pitch)
+        ardupilot_z = unity_y ; (yaw)
     */
 
+    // FInd the Update Rate
     void Update()
     {
         updateCount += 1;
     }
 
+    // To Update the physics
     void FixedUpdate()
     {
         fixedUpdateCount += 1;
@@ -113,21 +118,44 @@ public class DroneControlOr : MonoBehaviour
         for (int i = 0; i < engines.Count; i++)
         {
             var engine = engines[i];
-            engine.UpdateEngine(pwms[i], drone.battery_voltage);
+            engine.UpdateEngine(pwms[i], drone.battery_voltage,Time.fixedDeltaTime);
             drone.battery_current += engine.Current();
             totalThrust += engine.Thrust();
-            totalMoment.x += engine.Pitch();
+            totalMoment.x -= engine.Pitch();
             totalMoment.y += engine.Yaw();
             totalMoment.z += engine.Roll();
         }
 
         Vector3 engineForce = rb.transform.up * totalThrust;
+        Vector3 drag = CalculateDrag();
         Vector3 angularVelocity = CalculateAV(totalMoment);
+        //Debug.Log($"Force: {engineForce.y} {rb.velocity.y}");
 
+        engineForce -= drag;
         rb.angularVelocity = angularVelocity;
         rb.AddForce(engineForce);
     }
 
+    // Calculate the Drag
+    private Vector3 CalculateDrag() 
+    {
+        // Sign of the body frame velocity
+        Vector3 signBfVelo = new Vector3(Mathf.Sign(bf_velo.x), Mathf.Sign(bf_velo.y), Mathf.Sign(bf_velo.z));
+
+        // Square of the body frame velocity
+        Vector3 bfVeloSquared = new Vector3(bf_velo.x * bf_velo.x, bf_velo.y * bf_velo.y, bf_velo.z * bf_velo.z);
+
+        // Calculate drag force component-wise
+        Vector3 drag = signBfVelo;
+        drag.Scale(drone.copter_cd);
+        drag.Scale(drone.copter_cd_ref_area);
+        drag *= 0.5f * drone.density;
+        drag.Scale(bfVeloSquared);
+
+        return drag;
+    }
+
+    // Caclulate the angular velocity of the moment
     private Vector3 CalculateAV(Vector3 moment)
     {
         // Cache angular velocity
@@ -155,7 +183,8 @@ public class DroneControlOr : MonoBehaviour
         return gyro;
     }
 
-    private ushort[] ReceivedData() // Not THREAD 
+    // Received the Data
+    private ushort[] ReceivedData() 
     {
         ushort[] pwm = new ushort[16];
 
@@ -163,11 +192,8 @@ public class DroneControlOr : MonoBehaviour
         {
             // Receive UDP packet
             byte[] data = client.Receive(ref DroneIP);
-            if (!ArdupilotOnline)
-            {
-                ArdupilotOnline = true;
-                timeout = 0;
-            }
+            ArdupilotOnline = true;
+            timeout = 0;
 
             if (BitConverter.ToUInt16(data, 0) != theMagic)
             {
@@ -192,7 +218,8 @@ public class DroneControlOr : MonoBehaviour
         }
         catch (SocketException ex)
         {
-            if (ex.SocketErrorCode == SocketError.TimedOut)
+            if (ex.SocketErrorCode == SocketError.TimedOut 
+                || ex.SocketErrorCode == SocketError.ConnectionReset)
             {
                 timeout++;
                 if (timeout > TimeOutMax)
@@ -211,6 +238,7 @@ public class DroneControlOr : MonoBehaviour
         return pwm;
     }
 
+    // Create the Json & send over the network.
     private IEnumerator BuildJson()
     {
         double[] gyro = new double[3];
@@ -226,16 +254,22 @@ public class DroneControlOr : MonoBehaviour
             if (!ArdupilotOnline)
                 continue;
 
-            double timestamp = Time.realtimeSinceStartup;
 
+            Vector3 eulerAngles = rb.rotation.eulerAngles;
+            Vector3 adjustedEulerAngles = AdjustAngles(eulerAngles);
+
+            double timestamp = Time.realtimeSinceStartup;
             ToArdupilotRotation(rb.angularVelocity, gyro);
             ToArdupilotCoordinates(rb.position, position);
-            ToArdupilotRotation(rb.rotation.eulerAngles * Mathf.Deg2Rad, attitude);
+            ToArdupilotRotation(adjustedEulerAngles, attitude);
             ToArdupilotCoordinates(rb.velocity, velocity);
 
             accelBody[0] = (velocity[0] - lastVelocity[0]) / Time.fixedDeltaTime;
             accelBody[1] = (velocity[1] - lastVelocity[1]) / Time.fixedDeltaTime;
             accelBody[2] = (velocity[2] - lastVelocity[2]) / Time.fixedDeltaTime - Physics.gravity.magnitude;
+
+            //Debug.Log($"Velocity {rb.velocity.y} {accelBody[2]}");
+            Debug.Log($"{rb.position.y}");
 
             Array.Copy(velocity, lastVelocity, velocity.Length);
 
@@ -246,11 +280,14 @@ public class DroneControlOr : MonoBehaviour
             string json = "\n" + JsonUtility.ToJson(data) + "\n";
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             client.Send(jsonBytes, jsonBytes.Length, DroneIP);
+            //WriteJsonToFile(json, x);
+            //x++;
             test++;
 
         }
     }
 
+    // Change Vector to Martix in to Ardupilot Coordinates
     private void ToArdupilotCoordinates(Vector3 unityCoordinates, double[] array)
     {
         // Assign Vector3 components to the array
@@ -259,14 +296,38 @@ public class DroneControlOr : MonoBehaviour
         array[2] = -unityCoordinates.y;
     }
 
+    // Change Vector to Martix in to Ardupilot Rotation
     private void ToArdupilotRotation(Vector3 unityCoordinates, double[] array)
     {
         // Assign Vector3 components to the array
-        array[0] = unityCoordinates.z;
-        array[1] = unityCoordinates.y;
-        array[2] = -unityCoordinates.x;
+        array[0] = unityCoordinates.z; // Roll
+        array[1] = unityCoordinates.x; // Pitch (the - is in the calculators)
+        array[2] = unityCoordinates.y; // Yaw
     }
 
+    // Adjust the Angles
+    private Vector3 AdjustAngles(Vector3 angles)
+    {
+        // Adjust each component to be in the range -180 to 180 degrees
+        angles.x = (angles.x > 180) ? angles.x - 360 : angles.x;
+        angles.y = (angles.y > 180) ? angles.y - 360 : angles.y;
+        angles.z = (angles.z > 180) ? angles.z - 360 : angles.z;
+
+        // To rad
+        return (angles * Mathf.Deg2Rad);
+    }
+
+    // Calculate Body Frame Velocity for the drag
+    void CalculateBodyFrameVelocity()
+    {
+        // Inverse rotation to transform from world frame to body frame
+        Quaternion inverseRotation = Quaternion.Inverse(rb.rotation);
+
+        // Transform the velocity vector
+        bf_velo = inverseRotation * rb.velocity;
+    }
+
+    // To Reset the simulator
     private void SimReset()
     {
         drone.Reset();
@@ -275,9 +336,11 @@ public class DroneControlOr : MonoBehaviour
             engines[i].Reset();
         }
         rb.position = Vector3.zero;
+        rb.rotation = Quaternion.identity;
 
     }
 
+    // To close the Program
     private void OnDestroy()
     {
         // Close the UDP client and stop receiving thread
@@ -293,6 +356,7 @@ public class DroneControlOr : MonoBehaviour
         StopAllCoroutines();
     }
 
+    // Write the Json to the File
     static void WriteJsonToFile(string json, int x)
     {
         // Get the path to the user's home directory
@@ -308,6 +372,7 @@ public class DroneControlOr : MonoBehaviour
         }
     }
 
+    // Print on the GUI the Update 
     void OnGUI()
     {
         GUIStyle fontSize = new GUIStyle(GUI.skin.GetStyle("label"));
@@ -317,6 +382,7 @@ public class DroneControlOr : MonoBehaviour
         GUI.Label(new Rect(100, 200, 200, 50), "Test: " + testCountPerSecond.ToString(), fontSize);
     }
 
+    // Find the Updates
     IEnumerator Loop()
     {
         while (true)

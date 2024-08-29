@@ -46,8 +46,9 @@ public class DroneEngine : MonoBehaviour, I_Engine
         prop_inertia = prop_mass * Mathf.Pow(prop_diameter, 2) * 0.08f;
         rpm = 0;
         current = 0;
-        x = transform.position.x;
-        z = transform.position.z;
+        x = (Mathf.Round(transform.position.x * 100)) / 100.0f;
+        z = (Mathf.Round(transform.position.z * 100)) / 100.0f;
+        //Debug.Log($"{x} {z}");
     }
 
     // Reset the value to 0
@@ -61,9 +62,9 @@ public class DroneEngine : MonoBehaviour, I_Engine
         moment_yaw = 0;
     }
 
-    public void UpdateEngine(ushort pwm, float battery_dropped_voltage)
+    public void UpdateEngine(ushort pwm, float battery_dropped_voltage, float delta)
     {
-        //Debug.Log(delta);
+        //Debug.Log("delta" + delta);
         // Calculate the throttle
         float throttle = Mathf.Clamp((pwm - ServoMin) / (ServoMax - ServoMin), 0, 1);
 
@@ -78,11 +79,12 @@ public class DroneEngine : MonoBehaviour, I_Engine
         float prop_drag = prop_PConst * density * Mathf.Pow(rpm / 60, 2) * Mathf.Pow(prop_diameter, 5);
 
         float w = rpm * (twoPi / 60); // Convert to rad/s
-        float w1 = w + ((torque - prop_drag) / prop_inertia) * Time.fixedDeltaTime;
+        float w1 = w + ((torque - prop_drag) / prop_inertia) * delta;
         float rps = Mathf.Max(w1 / twoPi, 0); // For the negative rps
 
         // Calculate the thrust (with fudge factor)
-        thrust = 4.5f * prop_TConst * density * Mathf.Pow(rps, 2) * Mathf.Pow(prop_diameter, 4);
+        thrust = 4.4f * prop_TConst * density * Mathf.Pow(rps, 2) * Mathf.Pow(prop_diameter, 4);
+        //Debug.Log($"{thrust} {thrust/4.5f}");
 
         // Update
         rpm = rps * 60;
@@ -90,23 +92,23 @@ public class DroneEngine : MonoBehaviour, I_Engine
         moment_pitch = thrust * x;
         moment_yaw = -torque * direction;
 
-        HandlePropeller();
+        //HandlePropeller(delta);
     }
 
     // Move Propeller
-    private void HandlePropeller()
+    private void HandlePropeller(float delta_t)
     {
         if (!Propeller)
             return;
 
         // Rotate by RPM
-        Propeller.Rotate(Vector3.forward, rpm * Time.deltaTime);
+        Propeller.Rotate(Vector3.forward, rpm * delta_t);
     }
 
     // Thread-safe properties for getting values
-    public float Current() => current;
-    public float Thrust() => thrust;
     public float Roll() => moment_roll;
     public float Pitch() => moment_pitch;
     public float Yaw() => moment_yaw;
+    public float Thrust() => thrust;
+    public float Current() => current;
 }

@@ -121,7 +121,7 @@ public class DroneControl : MonoBehaviour
         for (int i = 0; i < engines.Count; i++)
         {
             var engine = engines[i];
-            engine.UpdateEngine(pwms[i], drone.battery_voltage);
+            engine.UpdateEngine(pwms[i], drone.battery_voltage,Time.fixedDeltaTime);
             drone.battery_current += engine.Current();
             totalThrust += engine.Thrust(); 
             totalMoment.x += engine.Pitch();

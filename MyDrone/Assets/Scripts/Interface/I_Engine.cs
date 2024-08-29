@@ -5,7 +5,7 @@ using UnityEngine;
 public interface I_Engine
 {
     void InitEngine();
-    void UpdateEngine(ushort pwn, float battery_dropped_voltage);
+    void UpdateEngine(ushort pwn, float battery_dropped_voltage,float delta);
     void Reset();
     float Current();
     float Thrust();

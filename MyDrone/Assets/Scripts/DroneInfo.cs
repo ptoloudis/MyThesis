@@ -10,8 +10,9 @@ public class DroneInfo
     public float battery_current; // Volts
     public float copter_mass = 1.282f; // Kg
     public float copter_inertia; 
-    public float copter_cd = 0.5f;
-    public float copter_cd_ref_area = Mathf.PI * 0.0081f;  
+    public float density = 1.225f; // kg/m^3
+    public Vector3 copter_cd = new Vector3(0.5f,0.5f,0.5f);
+    public Vector3 copter_cd_ref_area = Vector3.one * Mathf.PI * 0.0081f;  
 
     public void Init()
     {

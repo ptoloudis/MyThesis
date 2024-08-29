@@ -35,6 +35,8 @@ MyDrone/Assets/Drone/
 MyDrone/Assets/Scenes.meta
 MyDrone/Assets/Scenes/
 MyDrone/Assets/Scripts.meta
+MyDrone/Assets/TextMesh Pro.meta
+MyDrone/Assets/TextMesh Pro/
 MyDrone/Assets/Textures.meta
 MyDrone/Assets/Textures/
 MyDrone/Library/
@@ -48,6 +50,7 @@ MyDrone/Temp/
 eeprom.bin
 logs/
 Build/
+JSON/
 mav.parm
 mav.tlog
 mav.tlog.raw
