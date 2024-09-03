@@ -26,7 +26,7 @@ public class DroneMatlab : MonoBehaviour
     private const float rotDragCoefficient = 0.2f;
     private const float max_timestep = 1.0f / 50;
 
-    private uint count = 0;
+    private int count = -1;
     private uint timeout = 0;
     private int x = 0;
 
@@ -69,10 +69,11 @@ public class DroneMatlab : MonoBehaviour
         }
         drone.battery_dropped_voltage = 0;
 
-        MainCal = new Thread(new ThreadStart(MainFun));
-        MainCal.IsBackground = true;
-        MainCal.Start();
+        //MainCal = new Thread(new ThreadStart(MainFun));
+        //MainCal.IsBackground = true;
+        //MainCal.Start();
 
+        StartCoroutine(MainFun());
         StartCoroutine(Loop());
     }
 
@@ -122,7 +123,7 @@ public class DroneMatlab : MonoBehaviour
     }
 
 // Make the Calculetion.
-    private void MainFun()
+    IEnumerator MainFun()
     {
         ushort[] pwm = new ushort[16];
         double timestamp = 0;
@@ -138,8 +139,10 @@ public class DroneMatlab : MonoBehaviour
 
         while (true)
         {
+            yield return new WaitForFixedUpdate();
+
             try
-            {
+            { 
                 byte[] data = client.Receive(ref DroneIP);
                 timeout = 0;
 
@@ -150,7 +153,7 @@ public class DroneMatlab : MonoBehaviour
                 }
 
                 ushort frameRate = BitConverter.ToUInt16(data, 2);
-                uint frameCount = BitConverter.ToUInt32(data, 4);
+                int frameCount = BitConverter.ToInt32(data, 4);
 
                 if (frameCount < count)
                     // reset
@@ -158,7 +161,7 @@ public class DroneMatlab : MonoBehaviour
                 else if (frameCount == count)
                 {
                     Debug.LogError("Duplicate packets detected.");
-                    continue;
+                    //continue;
                 }
                 else if (frameCount > count + 1)
                     Debug.LogError($"Missed {frameCount - count - 1} packets detected.");

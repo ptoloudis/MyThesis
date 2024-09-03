@@ -52,6 +52,7 @@ try:
         
         # Increment the PWM value
         pwm_value += 1
+        print(pwm_value)
 
     while 1:
         
