@@ -88,3 +88,4 @@ Drone/Assembly-CSharp.Player.csproj
 
 #Unity Render Streaming web
 UnityRenderStreaming/node_modules
+*.mp4
