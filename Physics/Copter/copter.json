@@ -1,0 +1,108 @@
+{
+  "copter": {
+    "motors": [
+      {
+        "location": [0.2, 0.13, 0],
+        "channel": 1,
+        "direction": -1,
+        "electrical": {
+          "kv": 850,
+          "no_load_current": [0.6, 20],
+          "resistance": 0.272
+        },
+        "esc": {
+          "resistance": 0.01
+        },
+        "prop": {
+          "diameter": 0.254,
+          "pitch": 0.1143,
+          "num_blades": 2,
+          "PConst": 1.2,
+          "TConst": 1,
+          "mass": 0.02,
+          "inertia": 0.00010752666666666667
+        }
+      },
+      {
+        "location": [0.2, -0.13, 0],
+        "channel": 4,
+        "direction": 1,
+        "electrical": {
+          "kv": 850,
+          "no_load_current": [0.6, 20],
+          "resistance": 0.272
+        },
+        "esc": {
+          "resistance": 0.01
+        },
+        "prop": {
+          "diameter": 0.254,
+          "pitch": 0.1143,
+          "num_blades": 2,
+          "PConst": 1.2,
+          "TConst": 1,
+          "mass": 0.02,
+          "inertia": 0.00010752666666666667
+        }
+      },
+      {
+        "location": [-0.2, -0.13, 0],
+        "channel": 2,
+        "direction": -1,
+        "electrical": {
+          "kv": 850,
+          "no_load_current": [0.6, 20],
+          "resistance": 0.272
+        },
+        "esc": {
+          "resistance": 0.01
+        },
+        "prop": {
+          "diameter": 0.254,
+          "pitch": 0.1143,
+          "num_blades": 2,
+          "PConst": 1.2,
+          "TConst": 1,
+          "mass": 0.02,
+          "inertia": 0.00010752666666666667
+        }
+      },
+      {
+        "location": [-0.2, 0.13, 0],
+        "channel": 3,
+        "direction": 1,
+        "electrical": {
+          "kv": 850,
+          "no_load_current": [0.6, 20],
+          "resistance": 0.272
+        },
+        "esc": {
+          "resistance": 0.01
+        },
+        "prop": {
+          "diameter": 0.254,
+          "pitch": 0.1143,
+          "num_blades": 2,
+          "PConst": 1.2,
+          "TConst": 1,
+          "mass": 0.02,
+          "inertia": 0.00010752666666666667
+        }
+      }
+    ],
+    "battery": {
+      "voltage": 12.6,
+      "resistance": 0.00317,
+      "capacity": 3.5
+    },
+    "mass": 1.282,
+    "inertia": [
+      [0.0041536800000000007, 0, 0],
+      [0, 0.0041536800000000007, 0],
+      [0, 0, 0.0041536800000000007]
+    ],
+    "cd": [0.5, 0.5, 0.5],
+    "cd_ref_area": [0.15904312808798329, 0.15904312808798329, 0.15904312808798329]
+  },
+  "port": 9002
+}

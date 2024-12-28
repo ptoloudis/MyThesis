@@ -1,0 +1,4 @@
+docker run -it -v "$(pwd):/ardupilot" -u "$(id -u):$(id -g)" ardupilot:latest bash --name <>
+
+sim_vehicle.py -j4 -v Rover --out <ip>:14551 --out <ip>:14550
+sim_vehicle.py -j4 -v ArduCopter -f json:<ip> --add-param-file=MyRun/Copter/param.param --out <ip>:14549
