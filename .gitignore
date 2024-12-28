@@ -87,4 +87,4 @@ Drone/Assembly-CSharp-Editor.csproj
 Drone/Assembly-CSharp.Player.csproj
 
 #Unity Render Streaming web
-UnityRenderStreaming/
+UnityRenderStreaming/node_modules

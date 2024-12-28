@@ -1,0 +1,1 @@
+{"version":3,"file":"candidate.js","sourceRoot":"","sources":["../../src/class/candidate.ts"],"names":[],"mappings":";;AAAA;IAKE,mBAAY,SAAiB,EAAE,aAAqB,EAAE,MAAc,EAAE,QAAgB;QACpF,IAAI,CAAC,SAAS,GAAG,SAAS,CAAC;QAC3B,IAAI,CAAC,aAAa,GAAG,aAAa,CAAC;QACnC,IAAI,CAAC,MAAM,GAAG,MAAM,CAAC;QACrB,IAAI,CAAC,QAAQ,GAAG,QAAQ,CAAC;IAC3B,CAAC;IACH,gBAAC;AAAD,CAAC,AAXD,IAWC"}
