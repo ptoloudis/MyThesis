@@ -1,18 +1,16 @@
-﻿using UnityEngine;
+﻿//#define Matlab
+#define Write
+#define WP_Pos
+
+using UnityEngine;
 using System;
 using System.Text;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
-using System.Runtime.InteropServices;
-using UnityEngine.UIElements;
-using static TMPro.SpriteAssetUtilities.TexturePacker_JsonArray;
-using Unity.VisualScripting;
 
 [RequireComponent(typeof(Rigidbody))]
 
@@ -21,7 +19,7 @@ public class DroneMatlab : MonoBehaviour
     [Header("Ardupilot Properties")]
     [SerializeField] private int theMagic = 18458;
 
-    private int TimeOutMax = 5000;
+    private const int TimeOutMax = 5000;
     private const float maxGyro = 2000 * Mathf.Deg2Rad;
     private const float rotDragCoefficient = 0.2f;
     private const float max_timestep = 1.0f / 50;
@@ -35,8 +33,21 @@ public class DroneMatlab : MonoBehaviour
     private IPEndPoint DroneIP;
     private List<I_Engine> engines = new List<I_Engine>();
     protected Rigidbody rb;
-    private Thread MainCal;
     private DroneInfo drone;
+    private bool ArdupilotOnline;
+    private double[] lastVelocity;
+
+
+    ushort[] pwm = new ushort[16];
+    double timestamp = 0;
+    IMUData imuData = null;
+    STATE state;
+
+    double[] gyro = new double[3];
+    double[] position = new double[3];
+    double[] attitude = new double[3];
+    double[] velocity = new double[3];
+    double[] accelBody = new double[3];
 
     // Make the GUI Frame Rate
     private float updateCount = 0;
@@ -46,7 +57,23 @@ public class DroneMatlab : MonoBehaviour
     private float updateFixedUpdateCountPerSecond;
     private float testCountPerSecond;
 
-    private void Awake()
+
+    /* 
+        Ardupilot (NED) / Unity (EUN)
+        
+        The Unity to Ardupilot cartensinan.
+        ardupilot_x = unity_z;
+        ardupilot_y = unity_x;
+        ardupilot_z = -unity_y;
+
+        The Unity to Ardupilot rotation.
+        ardupilot_x = unity_z ; (roll)
+        ardupilot_y = unity_x ; (pitch)
+        ardupilot_z = unity_y ; (yaw)
+    */
+
+
+    private void Start()
     {
         // For Rigidbody
         rb = GetComponent<Rigidbody>();
@@ -55,6 +82,7 @@ public class DroneMatlab : MonoBehaviour
         drone = new DroneInfo();
         drone.Init();
         rb.mass = drone.copter_mass;
+        lastVelocity = new double[3];
 
         // UDP 
         client = new UdpClient(listenPort);
@@ -69,20 +97,19 @@ public class DroneMatlab : MonoBehaviour
         }
         drone.battery_dropped_voltage = 0;
 
-        //MainCal = new Thread(new ThreadStart(MainFun));
-        //MainCal.IsBackground = true;
-        //MainCal.Start();
+        state = new STATE();
+        state.Init();
 
-        StartCoroutine(MainFun());
+#if Write || !Matlab 
+        StartCoroutine(BuildJson());
+#endif
+
         StartCoroutine(Loop());
     }
 
     private void OnDestroy()
     {
         // Close the UDP client and stop receiving thread
-        if (MainCal != null)
-            MainCal.Abort();
-
         if (client != null)
             client.Close();
 
@@ -111,7 +138,7 @@ public class DroneMatlab : MonoBehaviour
         while (true)
         {
             yield return new WaitForSeconds(1);
-            Debug.Log(updateCount + " " + updateCount + " " + test);
+            //Debug.Log(updateCount + " " + updateCount + " " + test);
             updateUpdateCountPerSecond = updateCount;
             updateFixedUpdateCountPerSecond = fixedUpdateCount;
             testCountPerSecond = test;
@@ -122,91 +149,75 @@ public class DroneMatlab : MonoBehaviour
         }
     }
 
-// Make the Calculetion.
-    IEnumerator MainFun()
+    // Make the Calculetion.
+    void FixedUpdate()
     {
-        ushort[] pwm = new ushort[16];
-        double timestamp = 0;
-        IMUData imuData = null;
-        STATE state = new STATE();
-        state.Init();
-
-        double[] gyro = new double[3];
-        double[] position = new double[3];
-        double[] attitude = new double[3];
-        double[] velocity = new double[3];
-        double[] accelBody = new double[3];
-
-        while (true)
+        fixedUpdateCount += 1;
+        try
         {
-            yield return new WaitForFixedUpdate();
+            byte[] data = client.Receive(ref DroneIP);
+            timeout = 0;
+            ArdupilotOnline = true;
 
-            try
-            { 
-                byte[] data = client.Receive(ref DroneIP);
-                timeout = 0;
-
-                if (BitConverter.ToUInt16(data, 0) != theMagic)
-                {
-                    // If not magic
-                    Debug.LogError("Received data does not have the correct magic number.");
-                }
-
-                ushort frameRate = BitConverter.ToUInt16(data, 2);
-                int frameCount = BitConverter.ToInt32(data, 4);
-
-                if (frameCount < count)
-                    // reset
-                    continue;
-                else if (frameCount == count)
-                {
-                    Debug.LogError("Duplicate packets detected.");
-                    //continue;
-                }
-                else if (frameCount > count + 1)
-                    Debug.LogError($"Missed {frameCount - count - 1} packets detected.");
-               
-                count = frameCount;
-                Debug.Log(frameRate + " " + 1.0f / frameRate);
-                state.delta_t = Mathf.Min(1.0f/frameRate, max_timestep);
-                timestamp += state.delta_t;
-
-                // Extract pwm array
-                Buffer.BlockCopy(data, 8, pwm, 0, 32); // 16 * 2 bytes for 16 ushort values
-                physics_function(pwm, state);
-
-
-                Vector3ToArr(state.gyro, gyro);
-                Vector3ToArr(state.position, position);
-                Vector3ToArr(state.attitude, attitude);
-                Vector3ToArr(state.velocity, velocity);
-                Vector3ToArr(state.accel, accelBody);
-
-
-                IMU imu = new IMU(gyro, accelBody);
-                imuData = new IMUData(timestamp, imu, position, attitude, velocity);
-
-                // Create & send the Json.
-                string json = "\n" + JsonUtility.ToJson(imuData) + "\n";
-                byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
-                client.Send(jsonBytes, jsonBytes.Length, DroneIP);
-            }
-            catch (SocketException ex)
+            if (BitConverter.ToUInt16(data, 0) != theMagic)
             {
-                if (ex.SocketErrorCode == SocketError.TimedOut
-                || ex.SocketErrorCode == SocketError.ConnectionReset)
+                // If not magic
+                Debug.LogError("Received data does not have the correct magic number.");
+            }
+
+            ushort frameRate = BitConverter.ToUInt16(data, 2);
+            int frameCount = BitConverter.ToInt32(data, 4);
+
+            if (frameCount < count)
+                // reset
+                return;
+            else if (frameCount == count)
+            {
+                Debug.LogError("Duplicate packets detected.");
+                //continue;
+            }
+            else if (frameCount > count + 1)
+                Debug.LogError($"Missed {frameCount - count - 1} packets detected.");
+
+            count = frameCount;
+            state.delta_t = Mathf.Min(1.0f / frameRate, max_timestep);
+            timestamp += state.delta_t;
+
+            // Extract pwm array
+            Buffer.BlockCopy(data, 8, pwm, 0, 32); // 16 * 2 bytes for 16 ushort values
+            physics_function(pwm, state);
+            Vector3ToArr(state.gyro, gyro);
+            Vector3ToArr(state.position, position);
+            Vector3ToArr(state.attitude, attitude);
+            Vector3ToArr(state.velocity, velocity);
+            Vector3ToArr(state.accel, accelBody);
+
+
+            IMU imu = new IMU(gyro, accelBody);
+            imuData = new IMUData(timestamp, imu, position, attitude, velocity);
+
+#if Matlab
+            // Create & send the Json.
+            string json = "\n" + JsonUtility.ToJson(imuData) + "\n";
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            client.Send(jsonBytes, jsonBytes.Length, DroneIP);
+#endif
+        }
+        catch (SocketException ex)
+        {
+            if (ex.SocketErrorCode == SocketError.TimedOut
+            || ex.SocketErrorCode == SocketError.ConnectionReset)
+            {
+                timeout++;
+                if (timeout > TimeOutMax)
                 {
-                    timeout++;
-                    if (timeout > TimeOutMax)
-                    {
-                        timeout = 0;
-                        Debug.LogError("Offline");
-                    }
+                    timeout = 0;
+                    Debug.LogError("Offline");
                 }
-                else
-                {
-                    Debug.LogError("UDP Receive Error: " + ex.ToString());
-                }
+            }
+            else
+            {
+                Debug.LogError("UDP Receive Error: " + ex.ToString());
             }
         }
     }
@@ -231,19 +242,20 @@ public class DroneMatlab : MonoBehaviour
             engine.UpdateEngine(pwm[i], drone.battery_voltage, state.delta_t);
             drone.battery_current += engine.Current();
             totalThrust += engine.Thrust();
+            totalMoment.x -= engine.Roll();
             totalMoment.y += engine.Pitch();
             totalMoment.z += engine.Yaw();
-            totalMoment.x -= engine.Roll();
-            Debug.Log("1 " + pwm[i]);
         }
 
-        Vector3 drag = CalculateDrag(state.bf_velo);
+        Vector3 drag = CalculateDrag();
         Vector3 force = new Vector3(0, 0, -totalThrust) - drag;
-        Vector3 angularVelocity = CalculateAV(totalMoment, state.gyro, state.delta_t);
+        state.gyro = CalculateAV(totalMoment);
+
+        //rb.AddForce(new Vector3(force.y, -force.z, force.x));
+        //rb.angularVelocity = new Vector3(state.gyro.y, state.gyro.z, state.gyro.x);
 
         //update the dcm and attitude
-        RotateDCM(state.dcm, angularVelocity, state.attitude);
-
+        state.attitude = RotateDCM(state.gyro * state.delta_t);
         state.accel = force / drone.copter_mass;
 
         // earth frame accelerations(NED)
@@ -258,7 +270,6 @@ public class DroneMatlab : MonoBehaviour
         //work out acceleration as seen by the accelerometers.It sees the kinematic
         //acceleration(ie.real movement), plus gravity
         state.accel = state.dcm.transpose.MultiplyVector(accel_ef + new Vector3(0, 0, Physics.gravity.y));
-
         state.velocity += accel_ef * state.delta_t;
         state.position += state.velocity * state.delta_t;
 
@@ -270,13 +281,18 @@ public class DroneMatlab : MonoBehaviour
             state.gyro = Vector3.zero;
         }
 
+        rb.angularVelocity = new Vector3(state.gyro.y, state.gyro.z, state.gyro.x);
+        rb.velocity = new Vector3(state.velocity.y, -state.velocity.z, state.velocity.x);
+
         // Calculate the body frame velocity for drag calculation
         state.bf_velo = state.dcm.transpose.MultiplyVector(state.velocity);
     }
 
     // Calculate the Drag
-    private Vector3 CalculateDrag(Vector3 bf_velo)
+    private Vector3 CalculateDrag()
     {
+        Vector3 bf_velo = state.bf_velo;
+
         // Sign of the body frame velocity
         Vector3 signBfVelo = new Vector3(Mathf.Sign(bf_velo.x), Mathf.Sign(bf_velo.y), Mathf.Sign(bf_velo.z));
 
@@ -294,8 +310,10 @@ public class DroneMatlab : MonoBehaviour
     }
 
     // Caclulate the angular velocity of the moment
-    private Vector3 CalculateAV(Vector3 moment, Vector3 gyro, float delta)
-    { 
+    private Vector3 CalculateAV(Vector3 moment)
+    {
+        Vector3 gyro = state.gyro;
+
         // Drag in rotation
         Vector3 rotDrag = new Vector3(
             rotDragCoefficient * Mathf.Sign(gyro.x) * gyro.x * gyro.x,
@@ -308,7 +326,7 @@ public class DroneMatlab : MonoBehaviour
         Vector3 rotAccel = moments / drone.copter_inertia;
 
         // Update gyro with rotational acceleration
-        gyro += rotAccel * delta;
+        gyro += rotAccel * state.delta_t;
 
         // Clamp gyro values
         gyro.x = Mathf.Clamp(gyro.x, -maxGyro, maxGyro);
@@ -318,8 +336,9 @@ public class DroneMatlab : MonoBehaviour
         return gyro;
     }
 
-    public void RotateDCM(Matrix4x4 dcm, Vector3 ang, Vector3 euler)
+    public Vector3 RotateDCM(Vector3 ang)
     {
+        Matrix4x4 dcm = state.dcm;
         // Calculate delta
         Vector3 delta1 = new Vector3(
             dcm.m01 * ang.z - dcm.m02 * ang.y,
@@ -358,11 +377,141 @@ public class DroneMatlab : MonoBehaviour
         dcm.SetRow(2, new Vector4(t2.x, t2.y, t2.z, 0));
 
         // Calculate Euler angles
-        euler = new Vector3(
+        Vector3 euler = new Vector3(
             Mathf.Atan2(dcm.m21, dcm.m22),
             -Mathf.Asin(dcm.m20),
             Mathf.Atan2(dcm.m10, dcm.m00)
         );
+
+        state.dcm = dcm;
+        return euler;
+    }
+
+    // Create the Json & send over the network.
+    private IEnumerator BuildJson()
+    {
+        double[] _gyro = new double[3];
+        double[] _position = new double[3];
+        double[] _attitude = new double[3];
+        double[] _velocity = new double[3];
+        double[] _accelBody = new double[3];
+
+        while (true)
+        {
+            yield return new WaitForFixedUpdate();
+
+            if (!ArdupilotOnline)
+                continue;
+
+
+            Vector3 eulerAngles = rb.rotation.eulerAngles;
+            Vector3 adjustedEulerAngles = AdjustAngles(eulerAngles);
+
+            double timestamp = Time.realtimeSinceStartup;
+            ToArdupilotRotation(rb.angularVelocity, _gyro);
+            ToArdupilotCoordinates(rb.position, _position);
+            ToArdupilotRotation(adjustedEulerAngles, _attitude);
+            ToArdupilotCoordinates(rb.velocity, _velocity);
+
+            _accelBody[0] = (_velocity[0] - lastVelocity[0]) / state.delta_t;
+            _accelBody[1] = (_velocity[1] - lastVelocity[1]) / state.delta_t;
+            _accelBody[2] = (_velocity[2] - lastVelocity[2]) / state.delta_t - Physics.gravity.magnitude;
+
+            Array.Copy(_velocity, lastVelocity, velocity.Length);
+
+            IMU imu = new IMU(_gyro, _accelBody);
+            IMUData _data = new IMUData(timestamp, imu, _position, _attitude, _velocity);
+
+            // Create & send the Json.
+#if !Matlab
+            string json = "\n" + JsonUtility.ToJson(_data) + "\n";
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            client.Send(jsonBytes, jsonBytes.Length, DroneIP);
+#endif
+#if Write
+            WriteJsonToFile(_data, imuData, x);
+            x++;
+#endif
+
+            test++;
+
+        }
+    }
+
+    // Change Vector to Martix in to Ardupilot Coordinates
+    private void ToArdupilotCoordinates(Vector3 unityCoordinates, double[] array)
+    {
+        // Assign Vector3 components to the array
+        array[0] = unityCoordinates.z;  // North
+        array[1] = unityCoordinates.x;  // East
+        array[2] = -unityCoordinates.y; // Down
+    }
+
+    // Change Vector to Martix in to Ardupilot Rotation
+    private void ToArdupilotRotation(Vector3 unityCoordinates, double[] array)
+    {
+        // Assign Vector3 components to the array
+        array[0] = unityCoordinates.z; // Roll
+        array[1] = unityCoordinates.x; // Pitch 
+        array[2] = unityCoordinates.y; // Yaw
+    }
+
+    // Adjust the Angles
+    private Vector3 AdjustAngles(Vector3 angles)
+    {
+        // Adjust each component to be in the range -180 to 180 degrees
+        angles.x = (angles.x > 180) ? angles.x - 360 : angles.x;
+        angles.y = (angles.y > 180) ? angles.y - 360 : angles.y;
+        angles.z = (angles.z > 180) ? angles.z - 360 : angles.z;
+
+        // To rad
+        return (angles * Mathf.Deg2Rad);
+    }
+
+    // Write the Json to the File
+    static void WriteJsonToFile(IMUData _data, IMUData data, int x)
+    {
+#if WP_Pos
+        if (data.position[2] > -0.02f)
+        {
+            Debug.Log("Skip");
+            return;
+        }
+#endif 
+        // Get the path to the user's home directory
+        string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        // Construct the full file path
+        string filePath = Path.Combine(homeDirectory, "MyDrone", "JSON", "Diff", x + ".txt");
+
+        // Write JSON string to the file
+        using (StreamWriter streamWriter = File.CreateText(filePath))
+        {
+            streamWriter.WriteLine("Pos");
+            streamWriter.Write($"{data.position[0] - _data.position[0]} ");
+            streamWriter.Write($"{data.position[1] - _data.position[1]} ");
+            streamWriter.WriteLine($"{data.position[2] - _data.position[2]}");
+
+            streamWriter.WriteLine("Vel");
+            streamWriter.Write($"{data.velocity[0] - _data.velocity[0]} ");
+            streamWriter.Write($"{data.velocity[1] - _data.velocity[1]} ");
+            streamWriter.WriteLine($"{data.velocity[2] - _data.velocity[2]}");
+
+            streamWriter.WriteLine("Att");
+            streamWriter.Write($"{data.attitude[0] - _data.attitude[0]} ");
+            streamWriter.Write($"{data.attitude[1] - _data.attitude[1]} ");
+            streamWriter.WriteLine($"{data.attitude[2] - _data.attitude[2]}");
+
+            streamWriter.WriteLine("Gyro");
+            streamWriter.Write($"{data.imu.gyro[0] - _data.imu.gyro[0]} ");
+            streamWriter.Write($"{data.imu.gyro[1] - _data.imu.gyro[1]} ");
+            streamWriter.WriteLine($"{data.imu.gyro[2] - _data.imu.gyro[2]}");
+
+            streamWriter.WriteLine("Accel");
+            streamWriter.Write($"{data.imu.accel_body[0] - _data.imu.accel_body[0]} ");
+            streamWriter.Write($"{data.imu.accel_body[0] - _data.imu.accel_body[1]} ");
+            streamWriter.WriteLine($"{data.imu.accel_body[2] - _data.imu.accel_body[2]}");
+        }
     }
 }
 

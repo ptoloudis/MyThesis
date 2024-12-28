@@ -15,6 +15,7 @@ magic = 18458
 frame_rate = 500
 frame_count = 0
 pwm_value = 1100  # Initial PWM value
+pwm = [0]*16
 
 # Define the target address and port
 UDP_IP = "127.0.0.1"  # localhost
@@ -22,8 +23,7 @@ UDP_PORT = 9002       # Port to send to
 
 # Create a socket object
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-interval = 1.0 / frame_rate
+interval = 1.0 / frame_rate 
 
 try:
     while pwm_value <= 2000:
@@ -32,7 +32,7 @@ try:
             start_time = time.time()
 
             # Create the PWM array with the current PWM value
-            pwm = [pwm_value] * 16
+            pwm[0:4] = [pwm_value ,pwm_value ,pwm_value ,pwm_value]
 
             # Create the binary data for the structure
             packed_data = struct.pack(struct_format, magic, frame_rate, frame_count, *pwm)

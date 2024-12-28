@@ -2,6 +2,10 @@ import os
 import json
 import matplotlib.pyplot as plt
 
+pwm1 = []
+pwm2 = []
+pwm3 = []
+pwm4 = []
 timestamps = []
 gyro_x = []
 gyro_y = []
@@ -18,20 +22,27 @@ attitude_z = []
 velocity_x = []
 velocity_y = []
 velocity_z = []
-N = []
-D = []
+N=[]
 
 # Function to load JSON data from a file
 def load_json(filename):
     with open(filename, 'r') as f:
-        for line in f:
-            if line.strip():  # Check if the line is not empty
-                try:
-                    data = json.loads(line)
-                    get_data(data)
-                except json.JSONDecodeError as e:
-                    print(f"Error decoding JSON: {e}")
-                    continue  # Skip lines with errors
+        # Read the first line containing the series of numbers
+        numbers_line = f.readline().strip()
+        # Read the second line containing the JSON-like data
+        f.readline()
+        json_line = f.readline()
+        # Process the series of numbers
+        numbers = list(map(int, numbers_line.split()))
+        if numbers[0] <= 1100:
+            return
+
+        # Process the JSON-like data
+        N.append(numbers)
+        data = json.loads(json_line)
+        get_data(data)
+
+        return
 
 # Function to extract data and plot
 def get_data(json_data):
@@ -64,6 +75,8 @@ def get_data(json_data):
     velocity_z.append(velocity[2])
 
 def plot_data():
+    plt.figure()
+
     plt.figure(figsize=(14, 10))
 
     plt.subplot(3, 3, 1)

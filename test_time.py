@@ -12,9 +12,10 @@ struct_format = 'HHI16H'
 
 # Example data for the structure
 magic = 18458
-frame_rate = 500
+frame_rate = 900
 frame_count = 0
-pwm = [1600] * 16  # Example values, you can replace these with actual PWM values
+pwm = [0] * 16  # Example values, you can replace these with actual PWM values
+pwm[0:4] = [1600, 1600, 1600, 1600]
 
 # Define the target address and port
 UDP_IP = "127.0.0.1"  # localhost

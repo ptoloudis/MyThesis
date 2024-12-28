@@ -9,7 +9,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
-using System.Runtime.InteropServices;
 
 
 [RequireComponent(typeof(Rigidbody))]
@@ -38,6 +37,7 @@ public class DroneControlOr : MonoBehaviour
     private Thread ReceiveThread;
     private DroneInfo drone;
     private bool ArdupilotOnline;
+    private ushort[] pwm;
 
     // Make the GUI Frame Rate
     private float updateCount = 0;
@@ -47,7 +47,7 @@ public class DroneControlOr : MonoBehaviour
     private float updateFixedUpdateCountPerSecond;
     private float testCountPerSecond;
 
-    private void Awake()
+    private void Start()
     {
         // For Rigidbody
         rb = GetComponent<Rigidbody>();
@@ -102,38 +102,82 @@ public class DroneControlOr : MonoBehaviour
     void FixedUpdate()
     {
         fixedUpdateCount += 1;
-        ushort[] pwms = ReceivedData();
+        pwm = new ushort[16];
 
-        if (!ArdupilotOnline)
+        try
         {
-            SimReset();
-            return;
+            // Receive UDP packet
+            byte[] data = client.Receive(ref DroneIP);
+            ArdupilotOnline = true;
+            timeout = 0;
+
+            if (BitConverter.ToUInt16(data, 0) != theMagic)
+            {
+                // If not magic
+                Debug.LogError("Received data does not have the correct magic number.");
+                return;
+            }
+
+            ushort frameRate = BitConverter.ToUInt16(data, 2);
+            uint frameCount = BitConverter.ToUInt32(data, 4);
+
+            if (count >= frameCount)
+                return;
+            else if (frameCount > count + 1)
+                Debug.LogError("Missed packets detected.");
+            count = frameCount;
+            Buffer.BlockCopy(data, 8, pwm, 0, 32); // 16 * 2 bytes for 16 ushort values
+
+            drone.battery_dropped_voltage = drone.battery_voltage; // If battery resistance is negligible
+            float totalThrust = 0;
+            drone.battery_current = 0;
+            Vector3 totalMoment = Vector3.zero;
+
+            //Debug.Log("State...");
+            for (int i = 0; i < engines.Count; i++)
+            {
+                var engine = engines[i];
+                engine.UpdateEngine(pwm[i], drone.battery_voltage, Time.fixedDeltaTime);
+                drone.battery_current += engine.Current();
+                totalThrust += engine.Thrust();
+                totalMoment.x -= engine.Pitch();
+                totalMoment.y += engine.Yaw();
+                totalMoment.z += engine.Roll();
+            }
+            //Debug.Log($"Thrust:{totalThrust}");
+            //Debug.Log($"Pitch:{totalMoment.x} , Yaw:{totalMoment.y} , Roll:{totalMoment.z}");
+            //Debug.Log($"Bf_Velo:{bf_velo.x},{bf_velo.y},{bf_velo.z}");
+            //Debug.Log($"Ang:{rb.angularVelocity.x},{rb.angularVelocity.y},{rb.angularVelocity.z}");
+
+            Vector3 engineForce = rb.transform.up * totalThrust;
+            Vector3 drag = CalculateDrag();
+            Vector3 angularVelocity = CalculateAV(totalMoment);
+
+            engineForce -= drag;
+            rb.angularVelocity = angularVelocity;
+            rb.AddForce(engineForce);
+            //Debug.Log($"Ang:{rb.angularVelocity.x},{rb.angularVelocity.y},{rb.angularVelocity.z}");
+            //Debug.Log($"engineForce:{engineForce.x},{engineForce.y},{engineForce.z}");
+
         }
-
-        drone.battery_dropped_voltage = drone.battery_voltage; // If battery resistance is negligible
-        float totalThrust = 0;
-        drone.battery_current = 0;
-        Vector3 totalMoment = Vector3.zero;
-
-        for (int i = 0; i < engines.Count; i++)
+        catch (SocketException ex)
         {
-            var engine = engines[i];
-            engine.UpdateEngine(pwms[i], drone.battery_voltage,Time.fixedDeltaTime);
-            drone.battery_current += engine.Current();
-            totalThrust += engine.Thrust();
-            totalMoment.x -= engine.Pitch();
-            totalMoment.y += engine.Yaw();
-            totalMoment.z += engine.Roll();
+            if (ex.SocketErrorCode == SocketError.TimedOut
+                || ex.SocketErrorCode == SocketError.ConnectionReset)
+            {
+                timeout++;
+                if (timeout > TimeOutMax)
+                {
+                    ArdupilotOnline = false;
+                    timeout = 0;
+                    Debug.LogError("Offline");
+                }
+            }
+            else
+            {
+                Debug.LogError("UDP Receive Error: " + ex.ToString());
+            }
         }
-
-        Vector3 engineForce = rb.transform.up * totalThrust;
-        Vector3 drag = CalculateDrag();
-        Vector3 angularVelocity = CalculateAV(totalMoment);
-        //Debug.Log($"Force: {engineForce.y} {rb.velocity.y}");
-
-        engineForce -= drag;
-        rb.angularVelocity = angularVelocity;
-        rb.AddForce(engineForce);
     }
 
     // Calculate the Drag
@@ -183,61 +227,6 @@ public class DroneControlOr : MonoBehaviour
         return gyro;
     }
 
-    // Received the Data
-    private ushort[] ReceivedData() 
-    {
-        ushort[] pwm = new ushort[16];
-
-        try
-        {
-            // Receive UDP packet
-            byte[] data = client.Receive(ref DroneIP);
-            ArdupilotOnline = true;
-            timeout = 0;
-
-            if (BitConverter.ToUInt16(data, 0) != theMagic)
-            {
-                // If not magic
-                Debug.LogError("Received data does not have the correct magic number.");
-                return pwm;
-            }
-
-            ushort frameRate = BitConverter.ToUInt16(data, 2);
-            uint frameCount = BitConverter.ToUInt32(data, 4);
-
-            if (count >= frameCount)
-                return pwm;
-            else if (frameCount > count + 1)
-                Debug.LogError("Missed packets detected.");
-            count = frameCount;
-
-            // Extract pwm array
-            Buffer.BlockCopy(data, 8, pwm, 0, 32); // 16 * 2 bytes for 16 ushort values
-            return pwm;
-
-        }
-        catch (SocketException ex)
-        {
-            if (ex.SocketErrorCode == SocketError.TimedOut 
-                || ex.SocketErrorCode == SocketError.ConnectionReset)
-            {
-                timeout++;
-                if (timeout > TimeOutMax)
-                {
-                    ArdupilotOnline = false;
-                    timeout = 0;
-                    Debug.LogError("Offline");
-                }
-            }
-            else
-            {
-                Debug.LogError("UDP Receive Error: " + ex.ToString());
-            }
-        }
-
-        return pwm;
-    }
-
     // Create the Json & send over the network.
     private IEnumerator BuildJson()
     {
@@ -254,7 +243,7 @@ public class DroneControlOr : MonoBehaviour
             if (!ArdupilotOnline)
                 continue;
 
-
+            CalculateBodyFrameVelocity();
             Vector3 eulerAngles = rb.rotation.eulerAngles;
             Vector3 adjustedEulerAngles = AdjustAngles(eulerAngles);
 
@@ -268,9 +257,6 @@ public class DroneControlOr : MonoBehaviour
             accelBody[1] = (velocity[1] - lastVelocity[1]) / Time.fixedDeltaTime;
             accelBody[2] = (velocity[2] - lastVelocity[2]) / Time.fixedDeltaTime - Physics.gravity.magnitude;
 
-            //Debug.Log($"Velocity {rb.velocity.y} {accelBody[2]}");
-            Debug.Log($"{rb.position.y}");
-
             Array.Copy(velocity, lastVelocity, velocity.Length);
 
             IMU imu = new IMU(gyro, accelBody);
@@ -280,8 +266,8 @@ public class DroneControlOr : MonoBehaviour
             string json = "\n" + JsonUtility.ToJson(data) + "\n";
             byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
             client.Send(jsonBytes, jsonBytes.Length, DroneIP);
-            //WriteJsonToFile(json, x);
-            //x++;
+            //WriteJsonToFile(json, x, pwms:pwm);
+            x++;
             test++;
 
         }
@@ -300,8 +286,8 @@ public class DroneControlOr : MonoBehaviour
     private void ToArdupilotRotation(Vector3 unityCoordinates, double[] array)
     {
         // Assign Vector3 components to the array
-        array[0] = unityCoordinates.z; // Roll
-        array[1] = unityCoordinates.x; // Pitch (the - is in the calculators)
+        array[0] = -unityCoordinates.z; // Roll
+        array[1] = -unityCoordinates.x; // Pitch (the - is in the calculators)
         array[2] = unityCoordinates.y; // Yaw
     }
 
@@ -357,7 +343,7 @@ public class DroneControlOr : MonoBehaviour
     }
 
     // Write the Json to the File
-    static void WriteJsonToFile(string json, int x)
+    static void WriteJsonToFile(string json, int x, ushort[] pwms)
     {
         // Get the path to the user's home directory
         string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -368,7 +354,10 @@ public class DroneControlOr : MonoBehaviour
         // Write JSON string to the file
         using (StreamWriter streamWriter = File.CreateText(filePath))
         {
-            streamWriter.Write(json);
+             for (int i = 0; (i < 4); i++)
+                streamWriter.Write(pwms[i]+" ");
+             streamWriter.WriteLine();
+             streamWriter.Write(json);
         }
     }
 
@@ -388,7 +377,7 @@ public class DroneControlOr : MonoBehaviour
         while (true)
         {
             yield return new WaitForSeconds(1);
-            Debug.Log(updateCount + " " + updateCount + " " + test);
+            //Debug.Log(updateCount + " " + updateCount + " " + test);
             updateUpdateCountPerSecond = updateCount;
             updateFixedUpdateCountPerSecond = fixedUpdateCount;
             testCountPerSecond = test;

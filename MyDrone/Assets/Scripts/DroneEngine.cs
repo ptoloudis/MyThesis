@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 public class DroneEngine : MonoBehaviour, I_Engine
@@ -46,9 +47,8 @@ public class DroneEngine : MonoBehaviour, I_Engine
         prop_inertia = prop_mass * Mathf.Pow(prop_diameter, 2) * 0.08f;
         rpm = 0;
         current = 0;
-        x = (Mathf.Round(transform.position.x * 100)) / 100.0f;
-        z = (Mathf.Round(transform.position.z * 100)) / 100.0f;
-        //Debug.Log($"{x} {z}");
+        x = (Mathf.Round(transform.position.x * 100f)) / 100.0f;
+        z = (Mathf.Round(transform.position.z * 100f)) / 100.0f;
     }
 
     // Reset the value to 0
@@ -64,7 +64,6 @@ public class DroneEngine : MonoBehaviour, I_Engine
 
     public void UpdateEngine(ushort pwm, float battery_dropped_voltage, float delta)
     {
-        //Debug.Log("delta" + delta);
         // Calculate the throttle
         float throttle = Mathf.Clamp((pwm - ServoMin) / (ServoMax - ServoMin), 0, 1);
 
@@ -81,18 +80,18 @@ public class DroneEngine : MonoBehaviour, I_Engine
         float w = rpm * (twoPi / 60); // Convert to rad/s
         float w1 = w + ((torque - prop_drag) / prop_inertia) * delta;
         float rps = Mathf.Max(w1 / twoPi, 0); // For the negative rps
+        //Debug.Log($"{Propeller.name}:{rps*60}");
 
         // Calculate the thrust (with fudge factor)
         thrust = 4.4f * prop_TConst * density * Mathf.Pow(rps, 2) * Mathf.Pow(prop_diameter, 4);
-        //Debug.Log($"{thrust} {thrust/4.5f}");
 
         // Update
         rpm = rps * 60;
-        moment_roll = thrust * z;
-        moment_pitch = thrust * x;
+        moment_roll = thrust * x;
+        moment_pitch = thrust * z;
         moment_yaw = -torque * direction;
 
-        //HandlePropeller(delta);
+        HandlePropeller(delta);
     }
 
     // Move Propeller
@@ -102,7 +101,8 @@ public class DroneEngine : MonoBehaviour, I_Engine
             return;
 
         // Rotate by RPM
-        Propeller.Rotate(Vector3.forward, rpm * delta_t);
+        float speed = (float)(rpm * delta_t);
+        Propeller.Rotate(Vector3.forward, speed);
     }
 
     // Thread-safe properties for getting values
