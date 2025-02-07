@@ -4,7 +4,7 @@ import numpy as np
 from pymavlink import mavutil
 
 # Connect to the drone
-vehicle = connect('192.168.0.8:14551', wait_ready=True)  # Replace with your connection string
+vehicle = connect('192.168.0.5:14550', wait_ready=True)  # Replace with your connection string
 
 #  Function to move the drone to a specific position from the current position
 def goto_position_new(north, east, down):
@@ -19,15 +19,19 @@ def send_ned_position(north, east, down):
     east: Positive value means moving east
     down: Positive value means moving down
     """
+
+    # Get the current yaw angle
+    current_yaw = vehicle.attitude.yaw    
+
     msg = vehicle.message_factory.set_position_target_local_ned_encode(
         0,      # time_boot_ms (not used)
         0, 0,   # target system, target component
         mavutil.mavlink.MAV_FRAME_LOCAL_NED, # frame
-        0b0000111111111000, # type_mask (only positions enabled)
+        0b0000111111111000 & ~0b0000011000000000,  # Enable yaw control
         north, east, down, # NED positions
         0, 0, 0, # NED velocities
         0, 0, 0, # NED accelerations (not supported),
-        0, 0)    # yaw, yaw_rate (not supported)
+        current_yaw, 0)    # yaw, yaw_rate 
 
     vehicle.send_mavlink(msg)
 
@@ -134,7 +138,7 @@ try:
             get_position()
         elif inp == "y":
             heading = float(input("Enter the heading value: "))
-            condition_yaw(heading)
+            condition_yaw(heading, relative=True)
             get_position()
         else:
             print("Invalid input")
