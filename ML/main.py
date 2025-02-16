@@ -21,7 +21,7 @@ thresholdTime = 30 # in seconds
 yawChange = 20 # in degrees
 
 # Url for the Drone Movement
-droneMovementUrl = '192.168.0.5:14549'
+droneMovementUrl = '192.168.0.8:14549'
 
 # URL of the live stream page
 liveStreamUrl = "http://127.0.0.1:8080/MyDemoLive/index.html"
