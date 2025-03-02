@@ -23,8 +23,8 @@ Check out the demo video showcasing the object detection fly example:
 To get started with this project, clone the repository and navigate to the directory of interest. Follow the specific setup instructions provided in each directory.
 
 ```sh
-git clone <repository-url>
-cd <directory>
+git clone https://github.com/ptoloudis/MyThesis.git
+cd MyThesis
 ```
 
 ## Running the Project
