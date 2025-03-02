@@ -13,6 +13,11 @@ This repository contains the code and resources for my thesis project. The proje
 - **Physics/** – Physics simulations and related code.
 - **UnityRenderStreaming/** – Unity Render Streaming code and resources.
 
+## Demo Video
+
+Check out the demo video showcasing the object detection fly example:
+[Object Detection Fly Demo](https://youtu.be/cW9KFUT225E)
+
 ## Getting Started
 
 To get started with this project, clone the repository and navigate to the directory of interest. Follow the specific setup instructions provided in each directory.
@@ -111,3 +116,4 @@ If you want to run object detection to follow the Rover:
 - Ensure that the IP addresses are correctly configured.
 - Run MATLAB and Unity on the same machine.
 - Verify that all assets are correctly loaded before starting the project.
+
